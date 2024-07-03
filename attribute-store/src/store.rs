@@ -4,14 +4,6 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use thiserror::Error;
 
-static SYMBOL_REGEX_CELL: OnceLock<Regex> = OnceLock::new();
-
-fn symbol_regex<'a>() -> &'a Regex {
-    SYMBOL_REGEX_CELL.get_or_init(|| {
-        Regex::new(r"[[:alnum:]_$.,/<>:;@#%^ ]{1,60}").expect("Failed to compile symbol regex")
-    })
-}
-
 #[derive(Error, Debug)]
 pub enum AttributeStoreError {
     #[error("name `{0}` is not a valid symbol name")]
@@ -32,11 +24,25 @@ impl TryFrom<String> for Symbol {
     type Error = AttributeStoreError;
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        if !symbol_regex().is_match(&string) {
+        static SYMBOL_REGEX_CELL: OnceLock<Regex> = OnceLock::new();
+        let symbol_regex = SYMBOL_REGEX_CELL.get_or_init(|| {
+            Regex::new(r#"^[[:print:]--[\\"]]{1,60}$"#).expect("Failed to compile symbol regex")
+        });
+
+        if !symbol_regex.is_match(&string) {
             Err(AttributeStoreError::InvalidSymbolName(string))
         } else {
             Ok(Symbol(string))
         }
+    }
+}
+
+impl TryFrom<&str> for Symbol {
+    type Error = AttributeStoreError;
+
+    #[inline]
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Symbol::try_from(value.to_string())
     }
 }
 
@@ -163,5 +169,33 @@ impl From<BootstrapSymbol> for Entity {
             entity_id: value.into(),
             attributes,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_symbols() {
+        use AttributeStoreError::InvalidSymbolName;
+
+        assert_matches!(Symbol::try_from(r"ab\c"), Err(InvalidSymbolName(_)));
+        assert_matches!(Symbol::try_from(r#"ab"c"#), Err(InvalidSymbolName(_)));
+        assert_matches!(Symbol::try_from(""), Err(InvalidSymbolName(_)));
+        assert_matches!(
+            Symbol::try_from("0123456789".repeat(7)),
+            Err(InvalidSymbolName(_))
+        );
+    }
+
+    #[test]
+    fn valid_symbols() {
+        assert_eq!(Symbol::try_from("abc").unwrap(), Symbol("abc".to_string()));
+        assert_eq!(Symbol::try_from("@id").unwrap(), Symbol("@id".to_string()));
+        assert_eq!(
+            Symbol::try_from("@valueType/text").unwrap(),
+            Symbol("@valueType/text".to_string())
+        );
     }
 }
