@@ -1,0 +1,13 @@
+[package]
+name = "attribute-server"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+attribute-grpc-api = { version = "0.0.0", path = "../attribute-grpc-api" }
+tonic = "0.11.0"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
+tower = "0.4.13"
+anyhow = "1.0.86"

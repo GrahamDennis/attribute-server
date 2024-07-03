@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package me.grahamdennis.attribute;
 
-service AttributeServer {
+service Attribute {
   rpc Ping(PingRequest) returns (PingResponse);
 }
 
