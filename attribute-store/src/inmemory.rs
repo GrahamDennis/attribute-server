@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Debug)]
-struct InMemoryAttributeStore {
+pub struct InMemoryAttributeStore {
     entities: Mutex<HashMap<EntityId, Entity>>,
 }
 
@@ -73,10 +73,20 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn it_works() {
+    async fn can_fetch_by_entity_id() {
         let store = InMemoryAttributeStore::new();
         let entity_id_entity = store
             .get_entity(&EntityLocator::EntityId(BootstrapSymbol::EntityId.into()))
+            .await
+            .unwrap();
+        assert_eq!(entity_id_entity, BootstrapSymbol::EntityId.into());
+    }
+
+    #[tokio::test]
+    async fn can_fetch_by_symbol() {
+        let store = InMemoryAttributeStore::new();
+        let entity_id_entity = store
+            .get_entity(&EntityLocator::Symbol(BootstrapSymbol::EntityId.into()))
             .await
             .unwrap();
         assert_eq!(entity_id_entity, BootstrapSymbol::EntityId.into());

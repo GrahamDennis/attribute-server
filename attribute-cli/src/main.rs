@@ -1,4 +1,4 @@
-use attribute_grpc_api::grpc::attribute_client::AttributeClient;
+use attribute_grpc_api::grpc::attribute_store_client::AttributeStoreClient;
 use attribute_grpc_api::grpc::PingRequest;
 use clap::{Parser, Subcommand};
 use tonic::transport::Endpoint;
@@ -36,13 +36,13 @@ async fn main() -> anyhow::Result<()> {
 
     let channel = Endpoint::from_shared(cli.endpoint)?.connect().await?;
 
-    let mut attribute_client = AttributeClient::new(channel);
+    let mut attribute_store_client = AttributeStoreClient::new(channel);
 
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
     match &cli.command {
         Commands::Ping => {
-            let response = attribute_client.ping(PingRequest {}).await?;
+            let response = attribute_store_client.ping(PingRequest {}).await?;
             println!("response: {:?}", response);
 
             Ok(())

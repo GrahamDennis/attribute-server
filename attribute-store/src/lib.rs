@@ -1,5 +1,5 @@
-mod inmemory;
-mod store;
+pub mod inmemory;
+pub mod store;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

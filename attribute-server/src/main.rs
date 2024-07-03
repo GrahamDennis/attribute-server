@@ -1,5 +1,6 @@
 use crate::grpc::AttributeServer;
-use attribute_grpc_api::grpc::attribute_server;
+use attribute_grpc_api::grpc::attribute_store_server;
+use attribute_store::inmemory::InMemoryAttributeStore;
 use std::time::Duration;
 use tonic::transport::Server;
 use tracing::info;
@@ -20,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = "[::1]:50051".parse().unwrap();
 
-    let attribute_server = AttributeServer::default();
+    let attribute_server = AttributeServer::new(InMemoryAttributeStore::new());
 
     let layer = tower::ServiceBuilder::new()
         // Apply middleware from tower
@@ -31,7 +32,9 @@ async fn main() -> anyhow::Result<()> {
 
     Server::builder()
         .layer(layer)
-        .add_service(attribute_server::AttributeServer::new(attribute_server))
+        .add_service(attribute_store_server::AttributeStoreServer::new(
+            attribute_server,
+        ))
         .serve(addr)
         .await?;
 
