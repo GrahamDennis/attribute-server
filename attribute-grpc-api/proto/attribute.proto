@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package me.grahamdennis.attribute;
+
+service AttributeServer {
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {}
+message PingResponse {}
