@@ -4,4 +4,5 @@ members = [
     "attribute-grpc-api",
     "attribute-server",
     "attribute-cli",
+    "attribute-store",
 ]
