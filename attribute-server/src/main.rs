@@ -7,6 +7,7 @@ use tracing::info;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+mod convert;
 mod grpc;
 
 #[tokio::main]

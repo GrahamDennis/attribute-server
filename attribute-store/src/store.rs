@@ -15,7 +15,13 @@ pub enum AttributeStoreError {
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
-pub struct EntityId(i64);
+pub struct EntityId(pub i64);
+
+impl From<i64> for EntityId {
+    fn from(value: i64) -> Self {
+        EntityId(value)
+    }
+}
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub struct Symbol(String);
