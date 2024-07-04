@@ -27,11 +27,11 @@ message GetEntityResponse {
 
 message QueryEntitiesRequest {
   EntityQueryNode root = 1;
+  repeated string attribute_types = 2;
 }
 
 message QueryEntitiesResponse {
-  // FIXME: Should this return a full entity or a partial entity?
-  repeated Entity entities = 1;
+  repeated EntityRow rows = 1;
 }
 
 message EntityLocator {
@@ -44,6 +44,10 @@ message EntityLocator {
 message Entity {
   string entity_id = 1;
   map<string, AttributeValue> attributes = 2;
+}
+
+message EntityRow {
+  repeated NullableAttributeValue values = 1;
 }
 
 message Attribute {
@@ -60,9 +64,13 @@ message AttributeValue {
   }
 }
 
+message NullableAttributeValue {
+  optional AttributeValue value = 1;
+}
+
 message EntityQueryNode {
   oneof query {
-    MatchAllQueryNode match_all_query_node = 1;
+    MatchAllQueryNode match_all = 1;
 //    MatchNoneQueryNode match_none_query_node = 2;
 //    AndQueryNode and_query_node = 3;
 //    OrQueryNode or_query_node = 4;

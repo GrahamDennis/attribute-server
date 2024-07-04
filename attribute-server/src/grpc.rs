@@ -99,15 +99,16 @@ impl<T: attribute_store::store::AttributeStore>
         let entity_query =
             EntityQuery::try_from_proto(query_entities_request).map_err(ConversionError)?;
 
-        let entities = self
+        let entity_rows = self
             .store
             .query_entities(&entity_query)
             .await
             .map_err(AttributeStoreError)?;
         let query_entities_response = QueryEntitiesResponse {
-            entities: entities
+            // rows: entities.
+            rows: entity_rows
                 .into_iter()
-                .map(|entity| entity.into_proto())
+                .map(|entity_row| entity_row.into_proto())
                 .collect(),
         };
 

@@ -1,6 +1,6 @@
 use attribute_grpc_api::grpc;
 use attribute_store::store::{
-    AttributeValue, Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode,
+    AttributeValue, Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow,
     MatchAllQueryNode, Symbol,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
@@ -30,7 +30,7 @@ pub trait TryFromProto<T>: Sized {
 }
 
 pub trait IntoProto<T>: Sized {
-    fn into_proto(self: Self) -> T;
+    fn into_proto(self) -> T;
 }
 
 impl TryFromProto<grpc::GetEntityRequest> for EntityLocator {
@@ -99,7 +99,7 @@ impl TryFromProto<String> for Symbol {
 }
 
 impl IntoProto<grpc::Entity> for Entity {
-    fn into_proto(self: Self) -> grpc::Entity {
+    fn into_proto(self) -> grpc::Entity {
         grpc::Entity {
             entity_id: self.entity_id.into_proto(),
             attributes: self.attributes.into_proto(),
@@ -108,7 +108,7 @@ impl IntoProto<grpc::Entity> for Entity {
 }
 
 impl IntoProto<String> for EntityId {
-    fn into_proto(self: Self) -> String {
+    fn into_proto(self) -> String {
         let EntityId(database_id) = self;
         let internal_entity_id = grpc::InternalEntityId { database_id };
         URL_SAFE.encode(internal_entity_id.encode_to_vec())
@@ -116,7 +116,7 @@ impl IntoProto<String> for EntityId {
 }
 
 impl IntoProto<HashMap<String, grpc::AttributeValue>> for HashMap<Symbol, AttributeValue> {
-    fn into_proto(self: Self) -> HashMap<String, grpc::AttributeValue> {
+    fn into_proto(self) -> HashMap<String, grpc::AttributeValue> {
         self.into_iter()
             .map(|(symbol, attribute_value)| (symbol.into(), attribute_value.into_proto()))
             .collect()
@@ -124,7 +124,7 @@ impl IntoProto<HashMap<String, grpc::AttributeValue>> for HashMap<Symbol, Attrib
 }
 
 impl IntoProto<grpc::AttributeValue> for AttributeValue {
-    fn into_proto(self: Self) -> grpc::AttributeValue {
+    fn into_proto(self) -> grpc::AttributeValue {
         grpc::AttributeValue {
             attribute_value: Some(self.into_proto()),
         }
@@ -132,7 +132,7 @@ impl IntoProto<grpc::AttributeValue> for AttributeValue {
 }
 
 impl IntoProto<grpc::attribute_value::AttributeValue> for AttributeValue {
-    fn into_proto(self: Self) -> grpc::attribute_value::AttributeValue {
+    fn into_proto(self) -> grpc::attribute_value::AttributeValue {
         match self {
             AttributeValue::String(string_value) => {
                 grpc::attribute_value::AttributeValue::StringValue(string_value)
@@ -151,6 +151,12 @@ impl TryFromProto<grpc::QueryEntitiesRequest> for EntityQuery {
     fn try_from_proto(value: grpc::QueryEntitiesRequest) -> ConversionResult<Self> {
         use ConversionError::*;
 
+        let attribute_types: Result<Vec<Symbol>, _> = value
+            .attribute_types
+            .into_iter()
+            .map(|attribute_type| Symbol::try_from_proto(attribute_type))
+            .collect();
+
         Ok(EntityQuery {
             root: value
                 .root
@@ -160,6 +166,10 @@ impl TryFromProto<grpc::QueryEntitiesRequest> for EntityQuery {
                     field: "root",
                     source: err.into(),
                 })?,
+            attribute_types: attribute_types.map_err(|err| ErrorConvertingField {
+                field: "attribute_types",
+                source: err.into(),
+            })?,
         })
     }
 }
@@ -184,7 +194,21 @@ impl TryFromProto<grpc::entity_query_node::Query> for EntityQueryNode {
         use grpc::entity_query_node::Query;
 
         Ok(match value {
-            Query::MatchAllQueryNode(_) => EntityQueryNode::MatchAll(MatchAllQueryNode),
+            Query::MatchAll(_) => EntityQueryNode::MatchAll(MatchAllQueryNode),
         })
+    }
+}
+
+impl IntoProto<grpc::EntityRow> for EntityRow {
+    fn into_proto(self) -> grpc::EntityRow {
+        grpc::EntityRow {
+            values: self
+                .values
+                .into_iter()
+                .map(|value| grpc::NullableAttributeValue {
+                    value: value.map(|v| v.into_proto()),
+                })
+                .collect(),
+        }
     }
 }

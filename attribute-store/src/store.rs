@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use regex::Regex;
 use std::collections::HashMap;
+use std::convert::Into;
+use std::string::ToString;
 use std::sync::OnceLock;
 use thiserror::Error;
 
@@ -20,6 +22,16 @@ pub struct EntityId(pub i64);
 impl From<i64> for EntityId {
     fn from(value: i64) -> Self {
         EntityId(value)
+    }
+}
+
+impl TryFrom<EntityId> for usize {
+    type Error = AttributeStoreError;
+
+    fn try_from(value: EntityId) -> Result<Self, Self::Error> {
+        let EntityId(database_id) = value;
+        usize::try_from(database_id)
+            .map_err(|_| AttributeStoreError::EntityNotFound(EntityLocator::EntityId(value)))
     }
 }
 
@@ -72,6 +84,29 @@ pub struct Entity {
     pub attributes: HashMap<Symbol, AttributeValue>,
 }
 
+impl Entity {
+    pub fn to_entity_row<'a, I: IntoIterator<Item = &'a Symbol>>(
+        &self,
+        attribute_types: I,
+    ) -> EntityRow {
+        static ENTITY_ID_SYMBOL_CELL: OnceLock<Symbol> = OnceLock::new();
+        let entity_id_symbol =
+            ENTITY_ID_SYMBOL_CELL.get_or_init(|| BootstrapSymbol::EntityId.into());
+        EntityRow {
+            values: attribute_types
+                .into_iter()
+                .map(|attribute_type| {
+                    if attribute_type == entity_id_symbol {
+                        Some(AttributeValue::EntityId(self.entity_id))
+                    } else {
+                        self.attributes.get(attribute_type).cloned()
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub enum AttributeValue {
     String(String),
@@ -82,11 +117,30 @@ pub enum AttributeValue {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct EntityQuery {
     pub root: EntityQueryNode,
+    pub attribute_types: Vec<Symbol>,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum EntityQueryNode {
     MatchAll(MatchAllQueryNode),
+}
+
+impl EntityQueryNode {
+    pub fn to_predicate(&self) -> impl Fn(&&Entity) -> bool {
+        match self {
+            EntityQueryNode::MatchAll(_) => {
+                fn predicate(_: &&Entity) -> bool {
+                    true
+                }
+                predicate
+            }
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct EntityRow {
+    pub values: Vec<Option<AttributeValue>>,
 }
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
@@ -102,7 +156,7 @@ pub trait AttributeStore: Send + Sync + 'static {
     async fn query_entities(
         &self,
         entity_query: &EntityQuery,
-    ) -> Result<Vec<Entity>, AttributeStoreError>;
+    ) -> Result<Vec<EntityRow>, AttributeStoreError>;
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
