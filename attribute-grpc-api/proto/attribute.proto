@@ -6,17 +6,32 @@ service AttributeStore {
   rpc Ping(PingRequest) returns (PingResponse);
 
   rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
+  rpc QueryEntities(QueryEntitiesRequest) returns (QueryEntitiesResponse);
 }
 
 message PingRequest {}
 message PingResponse {}
 
+// FIXME: This shouldn't be here
+message InternalEntityId {
+  sint64 database_id = 1;
+}
+
 message GetEntityRequest {
   EntityLocator entity_locator = 1;
 }
 
-message InternalEntityId {
-  sint64 database_id = 1;
+message GetEntityResponse {
+  Entity entity = 1;
+}
+
+message QueryEntitiesRequest {
+  EntityQueryNode root = 1;
+}
+
+message QueryEntitiesResponse {
+  // FIXME: Should this return a full entity or a partial entity?
+  repeated Entity entities = 1;
 }
 
 message EntityLocator {
@@ -26,14 +41,9 @@ message EntityLocator {
   }
 }
 
-message GetEntityResponse {
-  Entity entity = 1;
-}
-
 message Entity {
   string entity_id = 1;
-  repeated Attribute attributes = 2;
-  map<string, AttributeValue> attributes_map = 3;
+  map<string, AttributeValue> attributes = 2;
 }
 
 message Attribute {
@@ -49,3 +59,17 @@ message AttributeValue {
     bytes bytes_value = 3;
   }
 }
+
+message EntityQueryNode {
+  oneof query {
+    MatchAllQueryNode match_all_query_node = 1;
+//    MatchNoneQueryNode match_none_query_node = 2;
+//    AndQueryNode and_query_node = 3;
+//    OrQueryNode or_query_node = 4;
+//    MatchEntityIdQueryNode match_entity_id_query_node = 5;
+//    MatchSymbolQueryNode match_symbol_query_node = 6;
+//    MatchAttributeValueQueryNode match_attribute_value_query_node = 7;
+  }
+}
+
+message MatchAllQueryNode {}

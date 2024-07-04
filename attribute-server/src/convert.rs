@@ -1,5 +1,8 @@
 use attribute_grpc_api::grpc;
-use attribute_store::store::{AttributeValue, Entity, EntityId, EntityLocator, Symbol};
+use attribute_store::store::{
+    AttributeValue, Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode,
+    MatchAllQueryNode, Symbol,
+};
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
 use std::collections::HashMap;
@@ -99,8 +102,7 @@ impl IntoProto<grpc::Entity> for Entity {
     fn into_proto(self: Self) -> grpc::Entity {
         grpc::Entity {
             entity_id: self.entity_id.into_proto(),
-            attributes: self.attributes.clone().into_proto(),
-            attributes_map: self.attributes.into_proto(),
+            attributes: self.attributes.into_proto(),
         }
     }
 }
@@ -110,17 +112,6 @@ impl IntoProto<String> for EntityId {
         let EntityId(database_id) = self;
         let internal_entity_id = grpc::InternalEntityId { database_id };
         URL_SAFE.encode(internal_entity_id.encode_to_vec())
-    }
-}
-
-impl IntoProto<Vec<grpc::Attribute>> for HashMap<Symbol, AttributeValue> {
-    fn into_proto(self: Self) -> Vec<grpc::Attribute> {
-        self.into_iter()
-            .map(|(symbol, attribute_value)| grpc::Attribute {
-                attribute_symbol: symbol.into(),
-                attribute_value: Some(attribute_value.into_proto()),
-            })
-            .collect()
     }
 }
 
@@ -153,5 +144,47 @@ impl IntoProto<grpc::attribute_value::AttributeValue> for AttributeValue {
                 grpc::attribute_value::AttributeValue::BytesValue(bytes)
             }
         }
+    }
+}
+
+impl TryFromProto<grpc::QueryEntitiesRequest> for EntityQuery {
+    fn try_from_proto(value: grpc::QueryEntitiesRequest) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        Ok(EntityQuery {
+            root: value
+                .root
+                .ok_or(FieldMissing)
+                .and_then(|entity_query_node| EntityQueryNode::try_from_proto(entity_query_node))
+                .map_err(|err| ErrorConvertingField {
+                    field: "root",
+                    source: err.into(),
+                })?,
+        })
+    }
+}
+
+impl TryFromProto<grpc::EntityQueryNode> for EntityQueryNode {
+    fn try_from_proto(value: grpc::EntityQueryNode) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        value
+            .query
+            .ok_or(FieldMissing)
+            .and_then(|node| EntityQueryNode::try_from_proto(node))
+            .map_err(|err| ErrorConvertingField {
+                field: "query",
+                source: err.into(),
+            })
+    }
+}
+
+impl TryFromProto<grpc::entity_query_node::Query> for EntityQueryNode {
+    fn try_from_proto(value: grpc::entity_query_node::Query) -> ConversionResult<Self> {
+        use grpc::entity_query_node::Query;
+
+        Ok(match value {
+            Query::MatchAllQueryNode(_) => EntityQueryNode::MatchAll(MatchAllQueryNode),
+        })
     }
 }

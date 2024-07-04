@@ -79,12 +79,30 @@ pub enum AttributeValue {
     Bytes(Vec<u8>),
 }
 
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct EntityQuery {
+    pub root: EntityQueryNode,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub enum EntityQueryNode {
+    MatchAll(MatchAllQueryNode),
+}
+
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+pub struct MatchAllQueryNode;
+
 #[async_trait]
 pub trait AttributeStore: Send + Sync + 'static {
     async fn get_entity(
         &self,
         entity_locator: &EntityLocator,
     ) -> Result<Entity, AttributeStoreError>;
+
+    async fn query_entities(
+        &self,
+        entity_query: &EntityQuery,
+    ) -> Result<Vec<Entity>, AttributeStoreError>;
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]

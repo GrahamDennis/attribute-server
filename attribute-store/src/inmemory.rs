@@ -1,10 +1,11 @@
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeValue, BootstrapSymbol, Entity, EntityId,
-    EntityLocator, Symbol, ValueType,
+    EntityLocator, EntityQuery, EntityQueryNode, Symbol, ValueType,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tracing::Level;
 
 #[derive(Debug)]
 pub struct InMemoryAttributeStore {
@@ -34,13 +35,29 @@ impl InMemoryAttributeStore {
     }
 }
 
+impl InMemoryAttributeStore {
+    fn to_predicate(entity_query_node: &EntityQueryNode) -> impl FnMut(&&Entity) -> bool {
+        match entity_query_node {
+            EntityQueryNode::MatchAll(_) => {
+                fn predicate(_: &&Entity) -> bool {
+                    true
+                }
+                predicate
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl AttributeStore for InMemoryAttributeStore {
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn get_entity(
         &self,
         entity_locator: &EntityLocator,
     ) -> Result<Entity, AttributeStoreError> {
         use AttributeStoreError::*;
+
+        log::trace!("Received get_entity request");
 
         let locked_entities = self
             .entities
@@ -66,11 +83,36 @@ impl AttributeStore for InMemoryAttributeStore {
 
         Ok(entity.clone())
     }
+
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    async fn query_entities(
+        &self,
+        entity_query: &EntityQuery,
+    ) -> Result<Vec<Entity>, AttributeStoreError> {
+        use AttributeStoreError::*;
+
+        log::trace!("Received query_entities request");
+
+        let locked_entities = self
+            .entities
+            .lock()
+            .map_err(|_| InternalError("task failed while holding lock"))?;
+
+        let entities = locked_entities
+            .iter()
+            .map(|(_, entity)| entity)
+            .filter(Self::to_predicate(&entity_query.root))
+            .cloned()
+            .collect();
+
+        Ok(entities)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::MatchAllQueryNode;
 
     #[tokio::test]
     async fn can_fetch_by_entity_id() {
@@ -90,5 +132,18 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(entity_id_entity, BootstrapSymbol::EntityId.into());
+    }
+
+    #[tokio::test]
+    async fn can_query_all() {
+        let store = InMemoryAttributeStore::new();
+        let mut entities = store
+            .query_entities(&EntityQuery {
+                root: EntityQueryNode::MatchAll(MatchAllQueryNode),
+            })
+            .await
+            .unwrap();
+        entities.sort_by_key(|entity| entity.entity_id.0);
+        assert_eq!(entities, InMemoryAttributeStore::bootstrap_entities());
     }
 }
