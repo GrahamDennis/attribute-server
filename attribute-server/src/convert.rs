@@ -8,6 +8,10 @@ use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 
+pub mod internal {
+    tonic::include_proto!("me.grahamdennis.attribute");
+}
+
 #[derive(Error, Debug)]
 pub enum ConversionError {
     #[error("field missing")]
@@ -83,7 +87,7 @@ impl TryFromProto<String> for EntityId {
         let decoded_bytes = URL_SAFE
             .decode(&value)
             .map_err(|err| InvalidEntityId(err.into()))?;
-        let internal_entity_id = grpc::InternalEntityId::decode(&*decoded_bytes)
+        let internal_entity_id = internal::InternalEntityId::decode(&*decoded_bytes)
             .map_err(|err| InvalidEntityId(err.into()))?;
         let entity_id: EntityId = internal_entity_id.database_id.into();
         Ok(entity_id)
@@ -110,7 +114,7 @@ impl IntoProto<grpc::Entity> for Entity {
 impl IntoProto<String> for EntityId {
     fn into_proto(self) -> String {
         let EntityId(database_id) = self;
-        let internal_entity_id = grpc::InternalEntityId { database_id };
+        let internal_entity_id = internal::InternalEntityId { database_id };
         URL_SAFE.encode(internal_entity_id.encode_to_vec())
     }
 }

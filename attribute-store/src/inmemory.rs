@@ -85,6 +85,8 @@ impl AttributeStore for InMemoryAttributeStore {
             .lock()
             .map_err(|_| InternalError("task failed while holding lock"))?;
 
+        // FIXME: validate requested attribute types
+
         let entity_rows = locked_entities
             .iter()
             .filter(entity_query.root.to_predicate())
