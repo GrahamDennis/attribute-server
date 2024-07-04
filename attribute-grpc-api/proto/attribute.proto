@@ -45,12 +45,6 @@ message EntityRow {
   repeated NullableAttributeValue values = 1;
 }
 
-message Attribute {
-  string attribute_symbol = 1;
-
-  AttributeValue attribute_value = 2;
-}
-
 message AttributeValue {
   oneof attribute_value {
     string string_value = 1;

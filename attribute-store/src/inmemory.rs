@@ -3,11 +3,13 @@ use crate::store::{
     EntityLocator, EntityQuery, EntityRow, Symbol, ValueType,
 };
 use async_trait::async_trait;
+use std::collections::HashSet;
 use std::sync::Mutex;
 use tracing::Level;
 
 #[derive(Debug)]
 pub struct InMemoryAttributeStore {
+    attribute_types: HashSet<Symbol>,
     entities: Mutex<Vec<Entity>>,
 }
 
@@ -19,7 +21,21 @@ impl InMemoryAttributeStore {
             let EntityId(database_id) = entity.entity_id;
             assert_eq!(usize::try_from(database_id).unwrap(), idx);
         }
+
+        let value_type_symbol: Symbol = BootstrapSymbol::ValueType.into();
+        let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
+
         InMemoryAttributeStore {
+            attribute_types: entities
+                .iter()
+                .filter(|entity| entity.attributes.get(&value_type_symbol).is_some())
+                .flat_map(|entity| match entity.attributes.get(&symbol_name_symbol) {
+                    Some(AttributeValue::String(symbol_name)) => {
+                        Symbol::try_from(symbol_name.as_ref()).ok()
+                    }
+                    _ => None,
+                })
+                .collect(),
             entities: Mutex::new(entities),
         }
     }
@@ -85,7 +101,18 @@ impl AttributeStore for InMemoryAttributeStore {
             .lock()
             .map_err(|_| InternalError("task failed while holding lock"))?;
 
-        // FIXME: validate requested attribute types
+        let invalid_requested_attribute_types: Vec<_> = entity_query
+            .attribute_types
+            .iter()
+            .filter(|attribute_type| !self.attribute_types.contains(attribute_type))
+            .cloned()
+            .collect();
+
+        if !invalid_requested_attribute_types.is_empty() {
+            return Err(UnregisteredAttributeTypes(
+                invalid_requested_attribute_types,
+            ));
+        }
 
         let entity_rows = locked_entities
             .iter()

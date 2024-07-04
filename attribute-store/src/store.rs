@@ -14,6 +14,8 @@ pub enum AttributeStoreError {
     InternalError(&'static str),
     #[error("entity not found (locator: `{0:?}`)")]
     EntityNotFound(EntityLocator),
+    #[error("unregistered attribute type/s: `{0:?}`")]
+    UnregisteredAttributeTypes(Vec<Symbol>),
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
