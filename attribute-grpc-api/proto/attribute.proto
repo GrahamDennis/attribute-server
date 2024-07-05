@@ -8,6 +8,7 @@ service AttributeStore {
   rpc CreateAttributeType(CreateAttributeTypeRequest) returns (CreateAttributeTypeResponse);
   rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
   rpc QueryEntities(QueryEntitiesRequest) returns (QueryEntitiesResponse);
+  rpc UpdateEntity(UpdateEntityRequest) returns (UpdateEntityResponse);
 }
 
 message PingRequest {}
@@ -101,4 +102,19 @@ message AndQueryNode {
 
 message OrQueryNode {
   repeated EntityQueryNode clauses = 1;
+}
+
+message UpdateEntityRequest {
+  EntityLocator entity_locator = 1;
+  repeated AttributeToUpdate attributes_to_update = 2;
+  // FIXME: Could this be made conditional like a compare-and-swap?
+}
+
+message AttributeToUpdate {
+  string attribute_type = 1;
+  NullableAttributeValue attribute_value = 2;
+}
+
+message UpdateEntityResponse {
+  Entity entity = 1;
 }

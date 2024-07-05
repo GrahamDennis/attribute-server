@@ -209,6 +209,18 @@ pub struct OrQueryNode {
     pub clauses: Vec<EntityQueryNode>,
 }
 
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct AttributeToUpdate {
+    pub symbol: Symbol,
+    pub value: Option<AttributeValue>,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct UpdateEntityRequest {
+    pub entity_locator: EntityLocator,
+    pub attributes_to_update: Vec<AttributeToUpdate>,
+}
+
 #[async_trait]
 pub trait AttributeStore: Send + Sync + 'static {
     async fn create_attribute_type(
@@ -225,6 +237,11 @@ pub trait AttributeStore: Send + Sync + 'static {
         &self,
         entity_query: &EntityQuery,
     ) -> Result<Vec<EntityRow>, AttributeStoreError>;
+
+    async fn update_entity(
+        &self,
+        update_entity_request: &UpdateEntityRequest,
+    ) -> Result<Entity, AttributeStoreError>;
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]

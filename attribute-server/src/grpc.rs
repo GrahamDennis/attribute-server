@@ -1,9 +1,12 @@
 use crate::convert::{ConversionError, IntoProto, TryFromProto};
+use attribute_grpc_api::grpc;
 use attribute_grpc_api::grpc::{
     CreateAttributeTypeRequest, CreateAttributeTypeResponse, GetEntityRequest, GetEntityResponse,
-    PingRequest, PingResponse, QueryEntitiesRequest, QueryEntitiesResponse,
+    PingRequest, PingResponse, QueryEntitiesRequest, QueryEntitiesResponse, UpdateEntityResponse,
 };
-use attribute_store::store::{AttributeStoreError, AttributeType, EntityLocator, EntityQuery};
+use attribute_store::store::{
+    AttributeStoreError, AttributeType, EntityLocator, EntityQuery, UpdateEntityRequest,
+};
 use thiserror::Error;
 use tonic::{Code, Request, Response, Status};
 use tonic_types::{ErrorDetails, StatusExt};
@@ -139,5 +142,32 @@ impl<T: attribute_store::store::AttributeStore>
         };
 
         Ok(Response::new(query_entities_response))
+    }
+
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    async fn update_entity(
+        &self,
+        request: Request<grpc::UpdateEntityRequest>,
+    ) -> Result<Response<UpdateEntityResponse>, Status> {
+        use AttributeServerError::*;
+
+        log::info!("Received update entity request");
+
+        let update_entity_request_proto = request.into_inner();
+        let update_entity_request =
+            UpdateEntityRequest::try_from_proto(update_entity_request_proto)
+                .map_err(ConversionError)?;
+
+        let updated_entity = self
+            .store
+            .update_entity(&update_entity_request)
+            .await
+            .map_err(AttributeStoreError)?;
+
+        let update_entity_response = UpdateEntityResponse {
+            entity: Some(updated_entity.into_proto()),
+        };
+
+        Ok(Response::new(update_entity_response))
     }
 }

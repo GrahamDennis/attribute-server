@@ -1,6 +1,7 @@
+use crate::store::AttributeStoreError::Other;
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity,
-    EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, ValueType,
+    EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
 };
 use async_trait::async_trait;
 use parking_lot::{Mutex, MutexGuard};
@@ -58,6 +59,26 @@ impl InMemoryAttributeStore {
     }
 }
 
+fn insert_new_entity_with_attributes(
+    entities: &mut Vec<Entity>,
+    attributes: HashMap<Symbol, AttributeValue>,
+) -> Result<Entity, AttributeStoreError> {
+    let database_id = entities.len();
+    let entity = Entity {
+        entity_id: EntityId(i64::try_from(database_id).map_err(|err| Other {
+            message: format!(
+                "Failed to convert database id `{database_id}` to EntityId due to error `{err:?}`"
+            ),
+            source: err.into(),
+        })?),
+        attributes,
+    };
+
+    entities.push(entity.clone());
+
+    Ok(entity)
+}
+
 #[async_trait]
 impl AttributeStore for InMemoryAttributeStore {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
@@ -69,9 +90,9 @@ impl AttributeStore for InMemoryAttributeStore {
 
         log::trace!("Received create_attribute_type request");
 
+        let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
         let (mut locked_attribute_types, mut locked_entities) = self.all_locks();
 
-        let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
         let attribute_type_symbol_name: &str = &attribute_type.symbol;
         if let Some(matching_entity) = locked_entities.iter().find(|entity| {
             entity
@@ -169,6 +190,85 @@ impl AttributeStore for InMemoryAttributeStore {
             .collect();
 
         Ok(entity_rows)
+    }
+
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    async fn update_entity(
+        &self,
+        update_entity_request: &UpdateEntityRequest,
+    ) -> Result<Entity, AttributeStoreError> {
+        use AttributeStoreError::*;
+
+        log::trace!("Received query_entities request");
+
+        let UpdateEntityRequest {
+            entity_locator,
+            attributes_to_update,
+        } = update_entity_request;
+
+        let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
+        let (locked_attribute_types, mut locked_entities) = self.all_locks();
+
+        // Validate that all attributes are known
+        // FIXME: validate attribute types
+        // FIXME: validate that certain attribute types aren't modified that would create an attribute type
+        let unknown_attribute_types: Vec<_> = attributes_to_update
+            .iter()
+            .map(|attribute_to_update| &attribute_to_update.symbol)
+            .filter(|attribute_symbol| !locked_attribute_types.contains(attribute_symbol))
+            .cloned()
+            .collect();
+
+        if !unknown_attribute_types.is_empty() {
+            return Err(UnregisteredAttributeTypes(unknown_attribute_types));
+        }
+
+        // Update entity
+        let existing_entity = match entity_locator {
+            EntityLocator::EntityId(entity_id) => {
+                locked_entities.get_mut(usize::try_from(*entity_id)?)
+            }
+            EntityLocator::Symbol(symbol) => {
+                let expected_attribute_value = AttributeValue::String(symbol.clone().into());
+                locked_entities.iter_mut().find(|entity| {
+                    entity
+                        .attributes
+                        .get(&symbol_name_symbol)
+                        .is_some_and(|attribute_value| {
+                            attribute_value.eq(&expected_attribute_value)
+                        })
+                })
+            }
+        };
+
+        let updated_entity = match existing_entity {
+            None => insert_new_entity_with_attributes(
+                &mut locked_entities,
+                update_entity_request
+                    .attributes_to_update
+                    .iter()
+                    .filter_map(|attribute_to_update| {
+                        attribute_to_update
+                            .value
+                            .clone()
+                            .map(|value| (attribute_to_update.symbol.clone(), value))
+                    })
+                    .collect(),
+            )?,
+            Some(entity) => {
+                for attribute_to_update in attributes_to_update {
+                    match &attribute_to_update.value {
+                        None => entity.attributes.remove(&attribute_to_update.symbol),
+                        Some(attribute_value) => entity
+                            .attributes
+                            .insert(attribute_to_update.symbol.clone(), attribute_value.clone()),
+                    };
+                }
+                entity.clone()
+            }
+        };
+
+        Ok(updated_entity)
     }
 }
 

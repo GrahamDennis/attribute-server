@@ -3,9 +3,9 @@ use anyhow::anyhow;
 use attribute_grpc_api::grpc;
 use attribute_grpc_api::grpc::CreateAttributeTypeRequest;
 use attribute_store::store::{
-    AndQueryNode, AttributeType, AttributeValue, Entity, EntityId, EntityLocator, EntityQuery,
-    EntityQueryNode, EntityRow, MatchAllQueryNode, MatchNoneQueryNode, OrQueryNode, Symbol,
-    ValueType,
+    AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, Entity, EntityId,
+    EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode, MatchNoneQueryNode,
+    OrQueryNode, Symbol, UpdateEntityRequest, ValueType,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
@@ -312,5 +312,98 @@ impl TryFromProto<grpc::ValueType> for ValueType {
             grpc::ValueType::EntityReference => Ok(ValueType::EntityReference),
             grpc::ValueType::Bytes => Ok(ValueType::Bytes),
         }
+    }
+}
+
+impl TryFromProto<grpc::UpdateEntityRequest> for UpdateEntityRequest {
+    fn try_from_proto(value: grpc::UpdateEntityRequest) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        Ok(UpdateEntityRequest {
+            entity_locator: value
+                .entity_locator
+                .ok_or(FieldMissing)
+                .and_then(EntityLocator::try_from_proto)
+                .map_err(|err| ErrorConvertingField {
+                    field: "entity_locator",
+                    source: err.into(),
+                })?,
+            attributes_to_update: Vec::try_from_proto(value.attributes_to_update).map_err(
+                |err| ErrorConvertingField {
+                    field: "attributes_to_update",
+                    source: err.into(),
+                },
+            )?,
+        })
+    }
+}
+
+impl TryFromProto<Vec<grpc::AttributeToUpdate>> for Vec<AttributeToUpdate> {
+    fn try_from_proto(value: Vec<grpc::AttributeToUpdate>) -> ConversionResult<Self> {
+        value
+            .into_iter()
+            .map(AttributeToUpdate::try_from_proto)
+            .collect()
+    }
+}
+
+impl TryFromProto<grpc::AttributeToUpdate> for AttributeToUpdate {
+    fn try_from_proto(value: grpc::AttributeToUpdate) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        Ok(AttributeToUpdate {
+            symbol: Symbol::try_from_proto(value.attribute_type).map_err(|err| {
+                ErrorConvertingField {
+                    field: "attribute_type",
+                    source: err.into(),
+                }
+            })?,
+            value: value
+                .attribute_value
+                .ok_or(FieldMissing)
+                .and_then(|nullable_attribute_value| {
+                    nullable_attribute_value
+                        .value
+                        .map(AttributeValue::try_from_proto)
+                        .transpose()
+                })
+                .map_err(|err| ErrorConvertingField {
+                    field: "attribute_value",
+                    source: err.into(),
+                })?,
+        })
+    }
+}
+
+impl TryFromProto<grpc::AttributeValue> for AttributeValue {
+    fn try_from_proto(value: grpc::AttributeValue) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        value
+            .attribute_value
+            .ok_or(FieldMissing)
+            .and_then(AttributeValue::try_from_proto)
+            .map_err(|err| ErrorConvertingField {
+                field: "attribute_value",
+                source: err.into(),
+            })
+    }
+}
+
+impl TryFromProto<grpc::attribute_value::AttributeValue> for AttributeValue {
+    fn try_from_proto(value: grpc::attribute_value::AttributeValue) -> ConversionResult<Self> {
+        use grpc::attribute_value;
+
+        Ok(match value {
+            attribute_value::AttributeValue::StringValue(string_value) => {
+                AttributeValue::String(string_value)
+            }
+            attribute_value::AttributeValue::EntityIdValue(external_entity_id) => {
+                AttributeValue::EntityId(EntityId::try_from_proto(external_entity_id)?)
+            }
+            attribute_value::AttributeValue::BytesValue(bytes_value) => {
+                AttributeValue::Bytes(bytes_value)
+            }
+        })
     }
 }
