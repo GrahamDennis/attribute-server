@@ -1,4 +1,3 @@
-use crate::store::AttributeStoreError::Other;
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity,
     EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
@@ -81,6 +80,8 @@ fn insert_new_entity_with_attributes(
     entities: &mut Vec<Entity>,
     attributes: HashMap<Symbol, AttributeValue>,
 ) -> Result<Entity, AttributeStoreError> {
+    use AttributeStoreError::*;
+
     let database_id = entities.len();
     let entity = Entity {
         entity_id: EntityId(i64::try_from(database_id).map_err(|err| Other {
@@ -267,17 +268,17 @@ impl AttributeStore for InMemoryAttributeStore {
     ) -> Result<Entity, AttributeStoreError> {
         log::trace!("Received query_entities request");
 
-        let UpdateEntityRequest {
-            entity_locator,
-            attributes_to_update,
-        } = update_entity_request;
-
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
         let (locked_attribute_types, mut locked_entities) = self.all_locks();
 
         // Validate that all attributes are known and have the correct types
         // FIXME: Make this return ValidatedUpdateEntityRequest
         validate_update_entity_request(update_entity_request, &locked_attribute_types)?;
+
+        let UpdateEntityRequest {
+            entity_locator,
+            attributes_to_update,
+        } = update_entity_request;
 
         // Update entity
         let existing_entity = match entity_locator {
