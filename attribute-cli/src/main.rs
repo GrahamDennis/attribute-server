@@ -1,6 +1,9 @@
 use attribute_grpc_api::grpc::attribute_store_client::AttributeStoreClient;
-use attribute_grpc_api::grpc::PingRequest;
+use attribute_grpc_api::grpc::{PingRequest, QueryEntitiesRequest};
 use clap::{Parser, Subcommand};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::PathBuf;
 use tonic::transport::Endpoint;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -20,6 +23,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Ping,
+    QueryEntities {
+        #[clap(short, long, default_value = "content")]
+        json: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -44,6 +51,19 @@ async fn main() -> anyhow::Result<()> {
         Commands::Ping => {
             let response = attribute_store_client.ping(PingRequest {}).await?;
             println!("response: {:?}", response);
+
+            Ok(())
+        }
+        Commands::QueryEntities { json } => {
+            let file = File::open(json)?;
+            let reader = BufReader::new(file);
+            let query_entities_request: QueryEntitiesRequest = serde_json::from_reader(reader)?;
+
+            let response = attribute_store_client
+                .query_entities(query_entities_request)
+                .await?;
+            let query_entities_response = response.into_inner();
+            println!("{}", serde_json::to_string(&query_entities_response)?);
 
             Ok(())
         }

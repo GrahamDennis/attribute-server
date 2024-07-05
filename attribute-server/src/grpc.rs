@@ -122,7 +122,7 @@ impl<T: attribute_store::store::AttributeStore>
     ) -> Result<Response<QueryEntitiesResponse>, Status> {
         use AttributeServerError::*;
 
-        log::info!("Received get entity request");
+        log::info!("Received query entities request");
 
         let query_entities_request = request.into_inner();
         let entity_query =
