@@ -1,8 +1,5 @@
 use crate::store::AttributeStoreError::Other;
-use crate::store::{
-    AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity,
-    EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
-};
+use crate::store::{AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity, EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType};
 use async_trait::async_trait;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
@@ -38,7 +35,7 @@ impl InMemoryAttributeStore {
                         Some(AttributeValue::String(symbol_name)),
                         Some(AttributeValue::EntityId(value_type_entity_id)),
                     ) => (
-                        Symbol::try_from(symbol_name.as_ref()).ok(),
+                        Symbol::try_from(symbol_name.clone()).ok(),
                         ValueType::try_from(*value_type_entity_id).ok(),
                     ),
                     _ => (None, None),
@@ -75,6 +72,7 @@ impl InMemoryAttributeStore {
             BootstrapSymbol::ValueTypeEnum(ValueType::Bytes).into(),
         ]
     }
+
 }
 
 fn insert_new_entity_with_attributes(
@@ -96,6 +94,53 @@ fn insert_new_entity_with_attributes(
 
     Ok(entity)
 }
+
+fn validate_update_entity_request(update_entity_request: &UpdateEntityRequest, attribute_types: &HashMap<Symbol, ValueType>) -> Result<(), AttributeStoreError> {
+    use AttributeStoreError::*;
+
+    let value_type_symbol: Symbol = BootstrapSymbol::ValueType.into();
+    let UpdateEntityRequest { attributes_to_update, .. } = update_entity_request;
+
+    for attribute_to_update in attributes_to_update {
+        if attribute_to_update.symbol == value_type_symbol {
+            return Err(ImmutableAttributeTypeError {
+                attribute_to_update: attribute_to_update.clone(),
+                immutable_attribute_type: value_type_symbol
+            });
+        }
+        let expected_attribute_type = attribute_types
+            .get(&attribute_to_update.symbol)
+            .ok_or_else(|| {
+                UnregisteredAttributeTypes(vec![attribute_to_update.symbol.clone()])
+            })?;
+        match (&attribute_to_update.value, expected_attribute_type) {
+            (None, _) => (),
+            (Some(AttributeValue::String(_)), ValueType::Text) => (),
+            (Some(AttributeValue::EntityId(_)), ValueType::EntityReference) => (),
+            (Some(AttributeValue::Bytes(_)), ValueType::Bytes) => (),
+            _ => {
+                return Err(AttributeTypeConflictError {
+                    attribute_to_update: attribute_to_update.clone(),
+                    expected_value_type: expected_attribute_type.clone(),
+                })
+            }
+        }
+    }
+
+    let unknown_attribute_types: Vec<_> = attributes_to_update
+        .iter()
+        .map(|attribute_to_update| &attribute_to_update.symbol)
+        .filter(|attribute_symbol| !attribute_types.contains_key(attribute_symbol))
+        .cloned()
+        .collect();
+
+    if !unknown_attribute_types.is_empty() {
+        return Err(UnregisteredAttributeTypes(unknown_attribute_types));
+    }
+
+    Ok(())
+}
+
 
 #[async_trait]
 impl AttributeStore for InMemoryAttributeStore {
@@ -215,8 +260,6 @@ impl AttributeStore for InMemoryAttributeStore {
         &self,
         update_entity_request: &UpdateEntityRequest,
     ) -> Result<Entity, AttributeStoreError> {
-        use AttributeStoreError::*;
-
         log::trace!("Received query_entities request");
 
         let UpdateEntityRequest {
@@ -228,38 +271,8 @@ impl AttributeStore for InMemoryAttributeStore {
         let (locked_attribute_types, mut locked_entities) = self.all_locks();
 
         // Validate that all attributes are known and have the correct types
-        // FIXME: validate that certain attribute types aren't modified that would create an attribute type
-        //  or more generally there may be immutable attribute types, and they cannot be modified.
-        for attribute_to_update in attributes_to_update {
-            let expected_attribute_type = locked_attribute_types
-                .get(&attribute_to_update.symbol)
-                .ok_or_else(|| {
-                UnregisteredAttributeTypes(vec![attribute_to_update.symbol.clone()])
-            })?;
-            match (&attribute_to_update.value, expected_attribute_type) {
-                (None, _) => (),
-                (Some(AttributeValue::String(_)), ValueType::Text) => (),
-                (Some(AttributeValue::EntityId(_)), ValueType::EntityReference) => (),
-                (Some(AttributeValue::Bytes(_)), ValueType::Bytes) => (),
-                _ => {
-                    return Err(AttributeTypeConflictError {
-                        attribute_to_update: attribute_to_update.clone(),
-                        expected_value_type: expected_attribute_type.clone(),
-                    })
-                }
-            }
-        }
-
-        let unknown_attribute_types: Vec<_> = attributes_to_update
-            .iter()
-            .map(|attribute_to_update| &attribute_to_update.symbol)
-            .filter(|attribute_symbol| !locked_attribute_types.contains_key(attribute_symbol))
-            .cloned()
-            .collect();
-
-        if !unknown_attribute_types.is_empty() {
-            return Err(UnregisteredAttributeTypes(unknown_attribute_types));
-        }
+        // FIXME: Make this return ValidatedUpdateEntityRequest
+        validate_update_entity_request(update_entity_request, &locked_attribute_types)?;
 
         // Update entity
         let existing_entity = match entity_locator {

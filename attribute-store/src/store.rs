@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use crate::store::AttributeStoreError::InvalidValueType;
 use async_trait::async_trait;
 use regex::Regex;
@@ -5,14 +6,13 @@ use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Into;
 use std::ops::Deref;
-use std::string::ToString;
 use std::sync::OnceLock;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AttributeStoreError {
     #[error("name `{0}` is not a valid symbol name")]
-    InvalidSymbolName(String),
+    InvalidSymbolName(Cow<'static, str>),
     #[error("internal error: `{0}`")]
     InternalError(&'static str),
     #[error("entity not found (locator: `{0:?}`)")]
@@ -28,6 +28,13 @@ pub enum AttributeStoreError {
     },
     #[error("invalid value type entity ID: `{0:?}`")]
     InvalidValueType(EntityId),
+    #[error(
+        "attribute to update `{attribute_to_update:?}` is attempting to update immutable \
+         attribute type `{immutable_attribute_type:?}` which cannot be modified.")]
+    ImmutableAttributeTypeError {
+      attribute_to_update: AttributeToUpdate,
+        immutable_attribute_type: Symbol,
+    },
     #[error("internal error: `{message}`")]
     Other {
         message: String,
@@ -55,12 +62,12 @@ impl TryFrom<EntityId> for usize {
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
-pub struct Symbol(String);
+pub struct Symbol(Cow<'static, str>);
 
-impl TryFrom<String> for Symbol {
+impl TryFrom<Cow<'static, str>> for Symbol {
     type Error = AttributeStoreError;
 
-    fn try_from(string: String) -> Result<Self, Self::Error> {
+    fn try_from(string: Cow<'static, str>) -> Result<Self, Self::Error> {
         static SYMBOL_REGEX_CELL: OnceLock<Regex> = OnceLock::new();
         let symbol_regex = SYMBOL_REGEX_CELL.get_or_init(|| {
             Regex::new(r#"^[[:print:]--[\\"]]{1,60}$"#).expect("Failed to compile symbol regex")
@@ -74,19 +81,28 @@ impl TryFrom<String> for Symbol {
     }
 }
 
-impl TryFrom<&str> for Symbol {
+impl TryFrom<&'static str> for Symbol {
     type Error = AttributeStoreError;
 
     #[inline]
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Symbol::try_from(value.to_string())
+    fn try_from(value: &'static str) -> Result<Self, Self::Error> {
+        Symbol::try_from(Cow::from(value))
+    }
+}
+
+impl TryFrom<String> for Symbol {
+    type Error = AttributeStoreError;
+
+    #[inline]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Symbol::try_from(Cow::from(value))
     }
 }
 
 impl From<Symbol> for String {
     fn from(value: Symbol) -> Self {
         let Symbol(inner) = value;
-        inner
+        inner.into_owned()
     }
 }
 
@@ -307,9 +323,9 @@ impl TryFrom<EntityId> for ValueType {
 impl From<BootstrapSymbol> for Symbol {
     fn from(value: BootstrapSymbol) -> Self {
         match value {
-            BootstrapSymbol::EntityId => Symbol("@id".to_string()),
-            BootstrapSymbol::SymbolName => Symbol("@symbolName".to_string()),
-            BootstrapSymbol::ValueType => Symbol("@valueType".to_string()),
+            BootstrapSymbol::EntityId => Symbol("@id".into()),
+            BootstrapSymbol::SymbolName => Symbol("@symbolName".into()),
+            BootstrapSymbol::ValueType => Symbol("@valueType".into()),
             BootstrapSymbol::ValueTypeEnum(value_type) => Symbol::from(value_type),
         }
     }
@@ -318,9 +334,9 @@ impl From<BootstrapSymbol> for Symbol {
 impl From<ValueType> for Symbol {
     fn from(value: ValueType) -> Self {
         match value {
-            ValueType::Text => Symbol("@valueType/text".to_string()),
-            ValueType::EntityReference => Symbol("@valueType/entityRef".to_string()),
-            ValueType::Bytes => Symbol("@valueType/bytes".to_string()),
+            ValueType::Text => Symbol("@valueType/text".into()),
+            ValueType::EntityReference => Symbol("@valueType/entityRef".into()),
+            ValueType::Bytes => Symbol("@valueType/bytes".into()),
         }
     }
 }
@@ -376,11 +392,11 @@ mod tests {
 
     #[test]
     fn valid_symbols() {
-        assert_eq!(Symbol::try_from("abc").unwrap(), Symbol("abc".to_string()));
-        assert_eq!(Symbol::try_from("@id").unwrap(), Symbol("@id".to_string()));
+        assert_eq!(Symbol::try_from("abc").unwrap(), Symbol("abc".into()));
+        assert_eq!(Symbol::try_from("@id").unwrap(), Symbol("@id".into()));
         assert_eq!(
             Symbol::try_from("@valueType/text").unwrap(),
-            Symbol("@valueType/text".to_string())
+            Symbol("@valueType/text".into())
         );
     }
 }
