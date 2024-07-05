@@ -1,7 +1,10 @@
+use crate::convert::ConversionError::InvalidValueType;
+use anyhow::anyhow;
 use attribute_grpc_api::grpc;
+use attribute_grpc_api::grpc::CreateAttributeTypeRequest;
 use attribute_store::store::{
-    AttributeValue, Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow,
-    MatchAllQueryNode, Symbol,
+    AttributeType, AttributeValue, Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode,
+    EntityRow, MatchAllQueryNode, MatchNoneQueryNode, Symbol, ValueType,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
@@ -25,6 +28,8 @@ pub enum ConversionError {
     InvalidEntityId(#[source] anyhow::Error),
     #[error("invalid symbol")]
     InvalidSymbol(#[source] anyhow::Error),
+    #[error("invalid value type")]
+    InvalidValueType(#[source] anyhow::Error),
 }
 
 type ConversionResult<T> = Result<T, ConversionError>;
@@ -199,6 +204,7 @@ impl TryFromProto<grpc::entity_query_node::Query> for EntityQueryNode {
 
         Ok(match value {
             Query::MatchAll(_) => EntityQueryNode::MatchAll(MatchAllQueryNode),
+            Query::MatchNone(_) => EntityQueryNode::MatchNone(MatchNoneQueryNode),
         })
     }
 }
@@ -213,6 +219,56 @@ impl IntoProto<grpc::EntityRow> for EntityRow {
                     value: value.map(|v| v.into_proto()),
                 })
                 .collect(),
+        }
+    }
+}
+
+impl TryFromProto<grpc::CreateAttributeTypeRequest> for AttributeType {
+    fn try_from_proto(value: CreateAttributeTypeRequest) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        value
+            .attribute_type
+            .ok_or(FieldMissing)
+            .and_then(AttributeType::try_from_proto)
+            .map_err(|err| ErrorConvertingField {
+                field: "attribute_type",
+                source: err.into(),
+            })
+    }
+}
+
+impl TryFromProto<grpc::AttributeType> for AttributeType {
+    fn try_from_proto(value: grpc::AttributeType) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        let value_type = grpc::ValueType::try_from(value.value_type)
+            .map_err(|err| InvalidValueType(err.into()))
+            .and_then(ValueType::try_from_proto)
+            .map_err(|err| ErrorConvertingField {
+                field: "value_type",
+                source: err.into(),
+            })?;
+
+        Ok(AttributeType {
+            symbol: Symbol::try_from_proto(value.symbol).map_err(|err| ErrorConvertingField {
+                field: "symbol",
+                source: err.into(),
+            })?,
+            value_type,
+        })
+    }
+}
+
+impl TryFromProto<grpc::ValueType> for ValueType {
+    fn try_from_proto(value: grpc::ValueType) -> ConversionResult<Self> {
+        match value {
+            grpc::ValueType::Invalid => {
+                Err(InvalidValueType(anyhow!("value_type = 0 is not valid")))
+            }
+            grpc::ValueType::Text => Ok(ValueType::Text),
+            grpc::ValueType::EntityReference => Ok(ValueType::EntityReference),
+            grpc::ValueType::Bytes => Ok(ValueType::Bytes),
         }
     }
 }

@@ -1,9 +1,9 @@
 use crate::convert::{ConversionError, IntoProto, TryFromProto};
 use attribute_grpc_api::grpc::{
-    GetEntityRequest, GetEntityResponse, PingRequest, PingResponse, QueryEntitiesRequest,
-    QueryEntitiesResponse,
+    CreateAttributeTypeRequest, CreateAttributeTypeResponse, GetEntityRequest, GetEntityResponse,
+    PingRequest, PingResponse, QueryEntitiesRequest, QueryEntitiesResponse,
 };
-use attribute_store::store::{AttributeStoreError, EntityLocator, EntityQuery};
+use attribute_store::store::{AttributeStoreError, AttributeType, EntityLocator, EntityQuery};
 use thiserror::Error;
 use tonic::{Code, Request, Response, Status};
 use tonic_types::{ErrorDetails, StatusExt};
@@ -59,6 +59,32 @@ impl<T: attribute_store::store::AttributeStore>
         let ping_response = PingResponse {};
 
         Ok(Response::new(ping_response))
+    }
+
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    async fn create_attribute_type(
+        &self,
+        request: Request<CreateAttributeTypeRequest>,
+    ) -> Result<Response<CreateAttributeTypeResponse>, Status> {
+        use AttributeServerError::*;
+
+        log::info!("Received create attribute type request");
+
+        let create_attribute_type_request = request.into_inner();
+        let attribute_type = AttributeType::try_from_proto(create_attribute_type_request)
+            .map_err(ConversionError)?;
+
+        let entity = self
+            .store
+            .create_attribute_type(&attribute_type)
+            .await
+            .map_err(AttributeStoreError)?;
+
+        let create_attribute_type_response = CreateAttributeTypeResponse {
+            entity: Some(entity.into_proto()),
+        };
+
+        Ok(Response::new(create_attribute_type_response))
     }
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]

@@ -5,12 +5,33 @@ package me.grahamdennis.attribute;
 service AttributeStore {
   rpc Ping(PingRequest) returns (PingResponse);
 
+  rpc CreateAttributeType(CreateAttributeTypeRequest) returns (CreateAttributeTypeResponse);
   rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
   rpc QueryEntities(QueryEntitiesRequest) returns (QueryEntitiesResponse);
 }
 
 message PingRequest {}
 message PingResponse {}
+
+enum ValueType {
+  INVALID = 0;
+  TEXT = 1;
+  ENTITY_REFERENCE = 2;
+  BYTES = 3;
+}
+
+message CreateAttributeTypeRequest {
+  AttributeType attribute_type = 1;
+}
+
+message AttributeType {
+  string symbol = 1;
+  ValueType value_type = 2;
+}
+
+message CreateAttributeTypeResponse {
+  Entity entity = 1;
+}
 
 message GetEntityRequest {
   EntityLocator entity_locator = 1;
@@ -60,7 +81,7 @@ message NullableAttributeValue {
 message EntityQueryNode {
   oneof query {
     MatchAllQueryNode match_all = 1;
-//    MatchNoneQueryNode match_none = 2;
+    MatchNoneQueryNode match_none = 2;
 //    AndQueryNode and_ = 3;
 //    OrQueryNode or_ = 4;
 //    MatchEntityIdQueryNode match_entity_id = 5;
@@ -70,3 +91,4 @@ message EntityQueryNode {
 }
 
 message MatchAllQueryNode {}
+message MatchNoneQueryNode {}

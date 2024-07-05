@@ -1,15 +1,15 @@
 use crate::store::{
-    AttributeStore, AttributeStoreError, AttributeValue, BootstrapSymbol, Entity, EntityId,
-    EntityLocator, EntityQuery, EntityRow, Symbol, ValueType,
+    AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity,
+    EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, ValueType,
 };
 use async_trait::async_trait;
-use std::collections::HashSet;
-use std::sync::Mutex;
+use parking_lot::{Mutex, MutexGuard};
+use std::collections::{HashMap, HashSet};
 use tracing::Level;
 
 #[derive(Debug)]
 pub struct InMemoryAttributeStore {
-    attribute_types: HashSet<Symbol>,
+    attribute_types: Mutex<HashSet<Symbol>>,
     entities: Mutex<Vec<Entity>>,
 }
 
@@ -25,19 +25,25 @@ impl InMemoryAttributeStore {
         let value_type_symbol: Symbol = BootstrapSymbol::ValueType.into();
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
 
+        let attribute_types = entities
+            .iter()
+            .filter(|entity| entity.attributes.get(&value_type_symbol).is_some())
+            .flat_map(|entity| match entity.attributes.get(&symbol_name_symbol) {
+                Some(AttributeValue::String(symbol_name)) => {
+                    Symbol::try_from(symbol_name.as_ref()).ok()
+                }
+                _ => None,
+            })
+            .collect();
         InMemoryAttributeStore {
-            attribute_types: entities
-                .iter()
-                .filter(|entity| entity.attributes.get(&value_type_symbol).is_some())
-                .flat_map(|entity| match entity.attributes.get(&symbol_name_symbol) {
-                    Some(AttributeValue::String(symbol_name)) => {
-                        Symbol::try_from(symbol_name.as_ref()).ok()
-                    }
-                    _ => None,
-                })
-                .collect(),
+            attribute_types: Mutex::new(attribute_types),
             entities: Mutex::new(entities),
         }
+    }
+
+    #[inline]
+    fn all_locks<'a>(&'a self) -> (MutexGuard<'a, HashSet<Symbol>>, MutexGuard<'a, Vec<Entity>>) {
+        (self.attribute_types.lock(), self.entities.lock())
     }
 
     fn bootstrap_entities() -> Vec<Entity> {
@@ -55,6 +61,54 @@ impl InMemoryAttributeStore {
 #[async_trait]
 impl AttributeStore for InMemoryAttributeStore {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    async fn create_attribute_type(
+        &self,
+        attribute_type: &AttributeType,
+    ) -> Result<Entity, AttributeStoreError> {
+        use AttributeStoreError::*;
+
+        log::trace!("Received create_attribute_type request");
+
+        let (mut locked_attribute_types, mut locked_entities) = self.all_locks();
+
+        let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
+        let attribute_type_symbol_name: &str = &attribute_type.symbol;
+        if let Some(matching_entity) = locked_entities.iter().find(|entity| {
+            entity
+                .attributes
+                .get(&symbol_name_symbol)
+                .is_some_and(|value| match value {
+                    AttributeValue::String(symbol_name) => {
+                        symbol_name.eq(attribute_type_symbol_name)
+                    }
+                    _ => false,
+                })
+        }) {
+            return Err(AttributeTypeConflictError(matching_entity.clone()));
+        }
+
+        let database_id = locked_entities.len();
+        let entity = Entity {
+            entity_id: EntityId(i64::try_from(database_id)
+                .map_err(|err| Other {
+                    message: format!("Failed to convert database id `{database_id}` to EntityId due to error `{err:?}`"),
+                    source: err.into()
+                }
+                )?
+            ),
+            attributes: HashMap::from([
+                (symbol_name_symbol, AttributeValue::String(attribute_type_symbol_name.to_string())),
+                (BootstrapSymbol::ValueType.into(), AttributeValue::EntityId(attribute_type.value_type.into()))
+            ])
+        };
+
+        locked_entities.push(entity.clone());
+        locked_attribute_types.insert(attribute_type.symbol.clone());
+
+        Ok(entity)
+    }
+
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn get_entity(
         &self,
         entity_locator: &EntityLocator,
@@ -63,14 +117,11 @@ impl AttributeStore for InMemoryAttributeStore {
 
         log::trace!("Received get_entity request");
 
-        let locked_entities = self
-            .entities
-            .lock()
-            .map_err(|_| InternalError("task failed while holding lock"))?;
+        let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
+        let locked_entities = self.entities.lock();
         let entity = match entity_locator {
             EntityLocator::EntityId(entity_id) => locked_entities.get(usize::try_from(*entity_id)?),
             EntityLocator::Symbol(symbol) => {
-                let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
                 let expected_attribute_value = AttributeValue::String(symbol.clone().into());
                 locked_entities.iter().find(|entity| {
                     entity
@@ -96,15 +147,12 @@ impl AttributeStore for InMemoryAttributeStore {
 
         log::trace!("Received query_entities request");
 
-        let locked_entities = self
-            .entities
-            .lock()
-            .map_err(|_| InternalError("task failed while holding lock"))?;
+        let (locked_attribute_types, locked_entities) = self.all_locks();
 
         let invalid_requested_attribute_types: Vec<_> = entity_query
             .attribute_types
             .iter()
-            .filter(|attribute_type| !self.attribute_types.contains(attribute_type))
+            .filter(|attribute_type| !locked_attribute_types.contains(attribute_type))
             .cloned()
             .collect();
 

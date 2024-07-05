@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use regex::Regex;
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Into;
+use std::ops::Deref;
 use std::string::ToString;
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -16,6 +18,13 @@ pub enum AttributeStoreError {
     EntityNotFound(EntityLocator),
     #[error("unregistered attribute type/s: `{0:?}`")]
     UnregisteredAttributeTypes(Vec<Symbol>),
+    #[error("attribute type `{0:?}` already exists")]
+    AttributeTypeConflictError(Entity),
+    #[error("internal error: `{message}`")]
+    Other {
+        message: String,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
@@ -73,6 +82,21 @@ impl From<Symbol> for String {
     }
 }
 
+impl Deref for Symbol {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        let Symbol(inner) = self;
+        inner
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct AttributeType {
+    pub symbol: Symbol,
+    pub value_type: ValueType,
+}
+
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum EntityLocator {
     EntityId(EntityId),
@@ -125,6 +149,7 @@ pub struct EntityQuery {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum EntityQueryNode {
     MatchAll(MatchAllQueryNode),
+    MatchNone(MatchNoneQueryNode),
 }
 
 impl EntityQueryNode {
@@ -133,6 +158,12 @@ impl EntityQueryNode {
             EntityQueryNode::MatchAll(_) => {
                 fn predicate(_: &&Entity) -> bool {
                     true
+                }
+                predicate
+            }
+            EntityQueryNode::MatchNone(_) => {
+                fn predicate(_: &&Entity) -> bool {
+                    false
                 }
                 predicate
             }
@@ -148,8 +179,16 @@ pub struct EntityRow {
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct MatchAllQueryNode;
 
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+pub struct MatchNoneQueryNode;
+
 #[async_trait]
 pub trait AttributeStore: Send + Sync + 'static {
+    async fn create_attribute_type(
+        &self,
+        attribute_type: &AttributeType,
+    ) -> Result<Entity, AttributeStoreError>;
+
     async fn get_entity(
         &self,
         entity_locator: &EntityLocator,
