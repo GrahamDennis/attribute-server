@@ -5,12 +5,12 @@ use crate::store::{
 };
 use async_trait::async_trait;
 use parking_lot::{Mutex, MutexGuard};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tracing::Level;
 
 #[derive(Debug)]
 pub struct InMemoryAttributeStore {
-    attribute_types: Mutex<HashSet<Symbol>>,
+    attribute_types: Mutex<HashMap<Symbol, ValueType>>,
     entities: Mutex<Vec<Entity>>,
 }
 
@@ -29,10 +29,23 @@ impl InMemoryAttributeStore {
         let attribute_types = entities
             .iter()
             .filter(|entity| entity.attributes.get(&value_type_symbol).is_some())
-            .flat_map(|entity| match entity.attributes.get(&symbol_name_symbol) {
-                Some(AttributeValue::String(symbol_name)) => {
-                    Symbol::try_from(symbol_name.as_ref()).ok()
+            .map(|entity| {
+                match (
+                    entity.attributes.get(&symbol_name_symbol),
+                    entity.attributes.get(&value_type_symbol),
+                ) {
+                    (
+                        Some(AttributeValue::String(symbol_name)),
+                        Some(AttributeValue::EntityId(value_type_entity_id)),
+                    ) => (
+                        Symbol::try_from(symbol_name.as_ref()).ok(),
+                        ValueType::try_from(*value_type_entity_id).ok(),
+                    ),
+                    _ => (None, None),
                 }
+            })
+            .flat_map(|entry| match entry {
+                (Some(key), Some(value)) => Some((key, value)),
                 _ => None,
             })
             .collect();
@@ -43,7 +56,12 @@ impl InMemoryAttributeStore {
     }
 
     #[inline]
-    fn all_locks<'a>(&'a self) -> (MutexGuard<'a, HashSet<Symbol>>, MutexGuard<'a, Vec<Entity>>) {
+    fn all_locks(
+        &self,
+    ) -> (
+        MutexGuard<HashMap<Symbol, ValueType>>,
+        MutexGuard<Vec<Entity>>,
+    ) {
         (self.attribute_types.lock(), self.entities.lock())
     }
 
@@ -105,7 +123,7 @@ impl AttributeStore for InMemoryAttributeStore {
                     _ => false,
                 })
         }) {
-            return Err(AttributeTypeConflictError(matching_entity.clone()));
+            return Err(AttributeTypeAlreadyExists(matching_entity.clone()));
         }
 
         let database_id = locked_entities.len();
@@ -124,7 +142,7 @@ impl AttributeStore for InMemoryAttributeStore {
         };
 
         locked_entities.push(entity.clone());
-        locked_attribute_types.insert(attribute_type.symbol.clone());
+        locked_attribute_types.insert(attribute_type.symbol.clone(), attribute_type.value_type);
 
         Ok(entity)
     }
@@ -173,7 +191,7 @@ impl AttributeStore for InMemoryAttributeStore {
         let invalid_requested_attribute_types: Vec<_> = entity_query
             .attribute_types
             .iter()
-            .filter(|attribute_type| !locked_attribute_types.contains(attribute_type))
+            .filter(|attribute_type| !locked_attribute_types.contains_key(attribute_type))
             .cloned()
             .collect();
 
@@ -209,13 +227,33 @@ impl AttributeStore for InMemoryAttributeStore {
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
         let (locked_attribute_types, mut locked_entities) = self.all_locks();
 
-        // Validate that all attributes are known
-        // FIXME: validate attribute types
+        // Validate that all attributes are known and have the correct types
         // FIXME: validate that certain attribute types aren't modified that would create an attribute type
+        //  or more generally there may be immutable attribute types, and they cannot be modified.
+        for attribute_to_update in attributes_to_update {
+            let expected_attribute_type = locked_attribute_types
+                .get(&attribute_to_update.symbol)
+                .ok_or_else(|| {
+                UnregisteredAttributeTypes(vec![attribute_to_update.symbol.clone()])
+            })?;
+            match (&attribute_to_update.value, expected_attribute_type) {
+                (None, _) => (),
+                (Some(AttributeValue::String(_)), ValueType::Text) => (),
+                (Some(AttributeValue::EntityId(_)), ValueType::EntityReference) => (),
+                (Some(AttributeValue::Bytes(_)), ValueType::Bytes) => (),
+                _ => {
+                    return Err(AttributeTypeConflictError {
+                        attribute_to_update: attribute_to_update.clone(),
+                        expected_value_type: expected_attribute_type.clone(),
+                    })
+                }
+            }
+        }
+
         let unknown_attribute_types: Vec<_> = attributes_to_update
             .iter()
             .map(|attribute_to_update| &attribute_to_update.symbol)
-            .filter(|attribute_symbol| !locked_attribute_types.contains(attribute_symbol))
+            .filter(|attribute_symbol| !locked_attribute_types.contains_key(attribute_symbol))
             .cloned()
             .collect();
 

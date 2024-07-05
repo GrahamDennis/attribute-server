@@ -1,3 +1,4 @@
+use crate::store::AttributeStoreError::InvalidValueType;
 use async_trait::async_trait;
 use regex::Regex;
 use std::boxed::Box;
@@ -19,7 +20,14 @@ pub enum AttributeStoreError {
     #[error("unregistered attribute type/s: `{0:?}`")]
     UnregisteredAttributeTypes(Vec<Symbol>),
     #[error("attribute type `{0:?}` already exists")]
-    AttributeTypeConflictError(Entity),
+    AttributeTypeAlreadyExists(Entity),
+    #[error("attribute to update `{attribute_to_update:?}` does not have the expected value type `{expected_value_type:?}`")]
+    AttributeTypeConflictError {
+        attribute_to_update: AttributeToUpdate,
+        expected_value_type: ValueType,
+    },
+    #[error("invalid value type entity ID: `{0:?}`")]
+    InvalidValueType(EntityId),
     #[error("internal error: `{message}`")]
     Other {
         message: String,
@@ -278,6 +286,20 @@ impl From<ValueType> for EntityId {
             ValueType::Text => EntityId(3),
             ValueType::EntityReference => EntityId(4),
             ValueType::Bytes => EntityId(5),
+        }
+    }
+}
+
+impl TryFrom<EntityId> for ValueType {
+    type Error = AttributeStoreError;
+
+    fn try_from(value: EntityId) -> Result<Self, Self::Error> {
+        use ValueType::*;
+        match value {
+            EntityId(3) => Ok(Text),
+            EntityId(4) => Ok(EntityReference),
+            EntityId(5) => Ok(Bytes),
+            other_entity_id => Err(InvalidValueType(other_entity_id)),
         }
     }
 }
