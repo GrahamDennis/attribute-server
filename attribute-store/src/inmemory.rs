@@ -1,5 +1,8 @@
 use crate::store::AttributeStoreError::Other;
-use crate::store::{AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity, EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType};
+use crate::store::{
+    AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity,
+    EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
+};
 use async_trait::async_trait;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
@@ -72,7 +75,6 @@ impl InMemoryAttributeStore {
             BootstrapSymbol::ValueTypeEnum(ValueType::Bytes).into(),
         ]
     }
-
 }
 
 fn insert_new_entity_with_attributes(
@@ -95,24 +97,28 @@ fn insert_new_entity_with_attributes(
     Ok(entity)
 }
 
-fn validate_update_entity_request(update_entity_request: &UpdateEntityRequest, attribute_types: &HashMap<Symbol, ValueType>) -> Result<(), AttributeStoreError> {
+fn validate_update_entity_request(
+    update_entity_request: &UpdateEntityRequest,
+    attribute_types: &HashMap<Symbol, ValueType>,
+) -> Result<(), AttributeStoreError> {
     use AttributeStoreError::*;
 
     let value_type_symbol: Symbol = BootstrapSymbol::ValueType.into();
-    let UpdateEntityRequest { attributes_to_update, .. } = update_entity_request;
+    let UpdateEntityRequest {
+        attributes_to_update,
+        ..
+    } = update_entity_request;
 
     for attribute_to_update in attributes_to_update {
         if attribute_to_update.symbol == value_type_symbol {
             return Err(ImmutableAttributeTypeError {
                 attribute_to_update: attribute_to_update.clone(),
-                immutable_attribute_type: value_type_symbol
+                immutable_attribute_type: value_type_symbol,
             });
         }
         let expected_attribute_type = attribute_types
             .get(&attribute_to_update.symbol)
-            .ok_or_else(|| {
-                UnregisteredAttributeTypes(vec![attribute_to_update.symbol.clone()])
-            })?;
+            .ok_or_else(|| UnregisteredAttributeTypes(vec![attribute_to_update.symbol.clone()]))?;
         match (&attribute_to_update.value, expected_attribute_type) {
             (None, _) => (),
             (Some(AttributeValue::String(_)), ValueType::Text) => (),
@@ -140,7 +146,6 @@ fn validate_update_entity_request(update_entity_request: &UpdateEntityRequest, a
 
     Ok(())
 }
-
 
 #[async_trait]
 impl AttributeStore for InMemoryAttributeStore {

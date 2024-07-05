@@ -1,7 +1,7 @@
-use std::borrow::Cow;
 use crate::store::AttributeStoreError::InvalidValueType;
 use async_trait::async_trait;
 use regex::Regex;
+use std::borrow::Cow;
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -30,9 +30,10 @@ pub enum AttributeStoreError {
     InvalidValueType(EntityId),
     #[error(
         "attribute to update `{attribute_to_update:?}` is attempting to update immutable \
-         attribute type `{immutable_attribute_type:?}` which cannot be modified.")]
+         attribute type `{immutable_attribute_type:?}` which cannot be modified."
+    )]
     ImmutableAttributeTypeError {
-      attribute_to_update: AttributeToUpdate,
+        attribute_to_update: AttributeToUpdate,
         immutable_attribute_type: Symbol,
     },
     #[error("internal error: `{message}`")]
