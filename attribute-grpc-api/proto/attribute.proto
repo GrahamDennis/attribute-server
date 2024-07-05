@@ -27,6 +27,9 @@ message CreateAttributeTypeRequest {
 message AttributeType {
   string symbol = 1;
   ValueType value_type = 2;
+  // FIXME: more information will be required, e.g.:
+  //   * uniqueness
+  //   * ownership / read/write permissions
 }
 
 message CreateAttributeTypeResponse {
