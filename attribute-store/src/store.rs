@@ -150,22 +150,39 @@ pub struct EntityQuery {
 pub enum EntityQueryNode {
     MatchAll(MatchAllQueryNode),
     MatchNone(MatchNoneQueryNode),
+    And(AndQueryNode),
+    Or(OrQueryNode),
+}
+
+fn match_all(_: &&Entity) -> bool {
+    true
+}
+fn match_none(_: &&Entity) -> bool {
+    false
 }
 
 impl EntityQueryNode {
-    pub fn to_predicate(&self) -> impl Fn(&&Entity) -> bool {
+    pub fn to_predicate(&self) -> Box<dyn Fn(&&Entity) -> bool> {
         match self {
-            EntityQueryNode::MatchAll(_) => {
-                fn predicate(_: &&Entity) -> bool {
-                    true
-                }
-                predicate
+            EntityQueryNode::MatchAll(_) => Box::new(match_all),
+            EntityQueryNode::MatchNone(_) => Box::new(match_none),
+            EntityQueryNode::And(AndQueryNode { clauses }) => {
+                let predicates: Vec<_> = clauses
+                    .into_iter()
+                    .map(|clause| clause.to_predicate())
+                    .collect();
+                let predicate =
+                    move |entity: &&Entity| -> bool { predicates.iter().all(|p| p(entity)) };
+                Box::new(predicate)
             }
-            EntityQueryNode::MatchNone(_) => {
-                fn predicate(_: &&Entity) -> bool {
-                    false
-                }
-                predicate
+            EntityQueryNode::Or(OrQueryNode { clauses }) => {
+                let predicates: Vec<_> = clauses
+                    .into_iter()
+                    .map(|clause| clause.to_predicate())
+                    .collect();
+                let predicate =
+                    move |entity: &&Entity| -> bool { predicates.iter().any(|p| p(entity)) };
+                Box::new(predicate)
             }
         }
     }
@@ -181,6 +198,16 @@ pub struct MatchAllQueryNode;
 
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct MatchNoneQueryNode;
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct AndQueryNode {
+    pub clauses: Vec<EntityQueryNode>,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct OrQueryNode {
+    pub clauses: Vec<EntityQueryNode>,
+}
 
 #[async_trait]
 pub trait AttributeStore: Send + Sync + 'static {

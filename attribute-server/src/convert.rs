@@ -3,8 +3,9 @@ use anyhow::anyhow;
 use attribute_grpc_api::grpc;
 use attribute_grpc_api::grpc::CreateAttributeTypeRequest;
 use attribute_store::store::{
-    AttributeType, AttributeValue, Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode,
-    EntityRow, MatchAllQueryNode, MatchNoneQueryNode, Symbol, ValueType,
+    AndQueryNode, AttributeType, AttributeValue, Entity, EntityId, EntityLocator, EntityQuery,
+    EntityQueryNode, EntityRow, MatchAllQueryNode, MatchNoneQueryNode, OrQueryNode, Symbol,
+    ValueType,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
@@ -205,7 +206,48 @@ impl TryFromProto<grpc::entity_query_node::Query> for EntityQueryNode {
         Ok(match value {
             Query::MatchAll(_) => EntityQueryNode::MatchAll(MatchAllQueryNode),
             Query::MatchNone(_) => EntityQueryNode::MatchNone(MatchNoneQueryNode),
+            Query::And(and_query_node) => {
+                EntityQueryNode::And(AndQueryNode::try_from_proto(and_query_node)?)
+            }
+            Query::Or(or_query_node) => {
+                EntityQueryNode::Or(OrQueryNode::try_from_proto(or_query_node)?)
+            }
         })
+    }
+}
+
+impl TryFromProto<grpc::AndQueryNode> for AndQueryNode {
+    fn try_from_proto(value: grpc::AndQueryNode) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        Ok(AndQueryNode {
+            clauses: Vec::try_from_proto(value.clauses).map_err(|err| ErrorConvertingField {
+                field: "clauses",
+                source: err.into(),
+            })?,
+        })
+    }
+}
+
+impl TryFromProto<grpc::OrQueryNode> for OrQueryNode {
+    fn try_from_proto(value: grpc::OrQueryNode) -> ConversionResult<Self> {
+        use ConversionError::*;
+
+        Ok(OrQueryNode {
+            clauses: Vec::try_from_proto(value.clauses).map_err(|err| ErrorConvertingField {
+                field: "clauses",
+                source: err.into(),
+            })?,
+        })
+    }
+}
+
+impl TryFromProto<Vec<grpc::EntityQueryNode>> for Vec<EntityQueryNode> {
+    fn try_from_proto(value: Vec<grpc::EntityQueryNode>) -> ConversionResult<Self> {
+        value
+            .into_iter()
+            .map(EntityQueryNode::try_from_proto)
+            .collect()
     }
 }
 

@@ -85,8 +85,8 @@ message EntityQueryNode {
   oneof query {
     MatchAllQueryNode match_all = 1;
     MatchNoneQueryNode match_none = 2;
-//    AndQueryNode and_ = 3;
-//    OrQueryNode or_ = 4;
+    AndQueryNode and_ = 3;
+    OrQueryNode or_ = 4;
 //    MatchEntityIdQueryNode match_entity_id = 5;
 //    MatchSymbolQueryNode match_symbol = 6;
 //    MatchAttributeValueQueryNode match_attribute_value = 7;
@@ -95,3 +95,10 @@ message EntityQueryNode {
 
 message MatchAllQueryNode {}
 message MatchNoneQueryNode {}
+message AndQueryNode {
+  repeated EntityQueryNode clauses = 1;
+}
+
+message OrQueryNode {
+  repeated EntityQueryNode clauses = 1;
+}
