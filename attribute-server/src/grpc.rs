@@ -49,14 +49,15 @@ impl From<AttributeServerError> for Status {
                     Code::InvalidArgument,
                     "conversion error",
                     ErrorDetails::with_bad_request_violation(field, field_error_message),
-            )},
+                )
+            }
         }
     }
 }
 
 #[tonic::async_trait]
-impl<T: attribute_store::store::AttributeStore>
-    grpc::attribute_store_server::AttributeStore for AttributeServer<T>
+impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::AttributeStore
+    for AttributeServer<T>
 {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
