@@ -17,6 +17,7 @@ base64 = "0.22.1"
 prost = "0.12.6"
 tonic-types = "0.11.0"
 log = "0.4.22"
+garde = { version = "0.20.0", features = ["derive", "regex"] }
 
 [build-dependencies]
 tonic-build = "0.11.0"

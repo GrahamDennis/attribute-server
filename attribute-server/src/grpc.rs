@@ -38,21 +38,25 @@ impl From<AttributeServerError> for Status {
                     AttributeStoreError::EntityNotFound(entity_locator) => Status::not_found(
                         format!("no entity found matching locator {:?}", entity_locator),
                     ),
-                    err => Status::invalid_argument(err.to_string()),
+                    err => Status::invalid_argument(format!("{:#}", anyhow::Error::from(err))),
                 }
             }
-            AttributeServerError::ConversionError(conversion_error) => Status::with_error_details(
-                Code::InvalidArgument,
-                "conversion error",
-                ErrorDetails::with_bad_request_violation("field", conversion_error.to_string()),
-            ),
+            AttributeServerError::ConversionError(conversion_error) => {
+                let ConversionError::InField(path, field_error) = conversion_error;
+                let field = path.to_string();
+                let field_error_message = format!("{:#}", anyhow::Error::from(field_error));
+                Status::with_error_details(
+                    Code::InvalidArgument,
+                    "conversion error",
+                    ErrorDetails::with_bad_request_violation(field, field_error_message),
+            )},
         }
     }
 }
 
 #[tonic::async_trait]
 impl<T: attribute_store::store::AttributeStore>
-    attribute_grpc_api::grpc::attribute_store_server::AttributeStore for AttributeServer<T>
+    grpc::attribute_store_server::AttributeStore for AttributeServer<T>
 {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
@@ -133,8 +137,8 @@ impl<T: attribute_store::store::AttributeStore>
             .query_entities(&entity_query)
             .await
             .map_err(AttributeStoreError)?;
+
         let query_entities_response = QueryEntitiesResponse {
-            // rows: entities.
             rows: entity_rows
                 .into_iter()
                 .map(|entity_row| entity_row.into_proto())
