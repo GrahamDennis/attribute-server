@@ -9,7 +9,7 @@ use attribute_store::store::{
 };
 use thiserror::Error;
 use tonic::{Code, Request, Response, Status};
-use tonic_types::{ErrorDetails, StatusExt};
+use tonic_types::{ErrorDetails, FieldViolation, StatusExt};
 use tracing::Level;
 
 pub struct AttributeServer<T> {
@@ -37,6 +37,19 @@ impl From<AttributeServerError> for Status {
                 match attribute_store_error {
                     AttributeStoreError::EntityNotFound(entity_locator) => Status::not_found(
                         format!("no entity found matching locator {:?}", entity_locator),
+                    ),
+                    AttributeStoreError::ValidationError(report) => Status::with_error_details(
+                        Code::InvalidArgument,
+                        "validation error",
+                        ErrorDetails::with_bad_request(
+                            report
+                                .into_inner()
+                                .into_iter()
+                                .map(|(path, error)| {
+                                    FieldViolation::new(path.to_string(), error.to_string())
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
                     ),
                     err => Status::invalid_argument(format!("{:#}", anyhow::Error::from(err))),
                 }

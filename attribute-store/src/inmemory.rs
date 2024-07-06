@@ -1,15 +1,17 @@
 use crate::store::{
-    AttributeStore, AttributeStoreError, AttributeType, AttributeValue, BootstrapSymbol, Entity,
-    EntityId, EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
+    AttributeStore, AttributeStoreError, AttributeType, AttributeTypes, AttributeValue,
+    BootstrapSymbol, Entity, EntityId, EntityLocator, EntityQuery, EntityRow, Symbol,
+    UpdateEntityRequest, ValueType,
 };
 use async_trait::async_trait;
+use garde::{Unvalidated, Valid};
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
 use tracing::Level;
 
 #[derive(Debug)]
 pub struct InMemoryAttributeStore {
-    attribute_types: Mutex<HashMap<Symbol, ValueType>>,
+    attribute_types: Mutex<AttributeTypes>,
     entities: Mutex<Vec<Entity>>,
 }
 
@@ -55,12 +57,7 @@ impl InMemoryAttributeStore {
     }
 
     #[inline]
-    fn all_locks(
-        &self,
-    ) -> (
-        MutexGuard<HashMap<Symbol, ValueType>>,
-        MutexGuard<Vec<Entity>>,
-    ) {
+    fn all_locks(&self) -> (MutexGuard<AttributeTypes>, MutexGuard<Vec<Entity>>) {
         (self.attribute_types.lock(), self.entities.lock())
     }
 
@@ -98,56 +95,6 @@ fn insert_new_entity_with_attributes(
     Ok(entity)
 }
 
-fn validate_update_entity_request(
-    update_entity_request: &UpdateEntityRequest,
-    attribute_types: &HashMap<Symbol, ValueType>,
-) -> Result<(), AttributeStoreError> {
-    use AttributeStoreError::*;
-
-    let value_type_symbol: Symbol = BootstrapSymbol::ValueType.into();
-    let UpdateEntityRequest {
-        attributes_to_update,
-        ..
-    } = update_entity_request;
-
-    for attribute_to_update in attributes_to_update {
-        if attribute_to_update.symbol == value_type_symbol {
-            return Err(ImmutableAttributeTypeError {
-                attribute_to_update: attribute_to_update.clone(),
-                immutable_attribute_type: value_type_symbol,
-            });
-        }
-        let expected_attribute_type = attribute_types
-            .get(&attribute_to_update.symbol)
-            .ok_or_else(|| UnregisteredAttributeTypes(vec![attribute_to_update.symbol.clone()]))?;
-        match (&attribute_to_update.value, expected_attribute_type) {
-            (None, _) => (),
-            (Some(AttributeValue::String(_)), ValueType::Text) => (),
-            (Some(AttributeValue::EntityId(_)), ValueType::EntityReference) => (),
-            (Some(AttributeValue::Bytes(_)), ValueType::Bytes) => (),
-            _ => {
-                return Err(AttributeTypeConflictError {
-                    attribute_to_update: attribute_to_update.clone(),
-                    expected_value_type: expected_attribute_type.clone(),
-                })
-            }
-        }
-    }
-
-    let unknown_attribute_types: Vec<_> = attributes_to_update
-        .iter()
-        .map(|attribute_to_update| &attribute_to_update.symbol)
-        .filter(|attribute_symbol| !attribute_types.contains_key(attribute_symbol))
-        .cloned()
-        .collect();
-
-    if !unknown_attribute_types.is_empty() {
-        return Err(UnregisteredAttributeTypes(unknown_attribute_types));
-    }
-
-    Ok(())
-}
-
 #[async_trait]
 impl AttributeStore for InMemoryAttributeStore {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
@@ -163,6 +110,7 @@ impl AttributeStore for InMemoryAttributeStore {
         let (mut locked_attribute_types, mut locked_entities) = self.all_locks();
 
         let attribute_type_symbol_name: &str = &attribute_type.symbol;
+        // FIXME: validate against attribute types
         if let Some(matching_entity) = locked_entities.iter().find(|entity| {
             entity
                 .attributes
@@ -233,29 +181,21 @@ impl AttributeStore for InMemoryAttributeStore {
         &self,
         entity_query: &EntityQuery,
     ) -> Result<Vec<EntityRow>, AttributeStoreError> {
-        use AttributeStoreError::*;
-
         log::trace!("Received query_entities request");
 
         let (locked_attribute_types, locked_entities) = self.all_locks();
 
-        let invalid_requested_attribute_types: Vec<_> = entity_query
-            .attribute_types
-            .iter()
-            .filter(|attribute_type| !locked_attribute_types.contains_key(attribute_type))
-            .cloned()
-            .collect();
-
-        if !invalid_requested_attribute_types.is_empty() {
-            return Err(UnregisteredAttributeTypes(
-                invalid_requested_attribute_types,
-            ));
-        }
+        let validated_entity_query =
+            Unvalidated::new(entity_query).validate_with(&locked_attribute_types)?;
+        let EntityQuery {
+            root,
+            attribute_types,
+        } = validated_entity_query.into_inner();
 
         let entity_rows = locked_entities
             .iter()
-            .filter(entity_query.root.to_predicate())
-            .map(|entity| entity.to_entity_row(&entity_query.attribute_types))
+            .filter(root.to_predicate())
+            .map(|entity| entity.to_entity_row(attribute_types))
             .collect();
 
         Ok(entity_rows)
@@ -273,12 +213,13 @@ impl AttributeStore for InMemoryAttributeStore {
 
         // Validate that all attributes are known and have the correct types
         // FIXME: Make this return ValidatedUpdateEntityRequest
-        validate_update_entity_request(update_entity_request, &locked_attribute_types)?;
+        let validated_update_entity_request: Valid<&UpdateEntityRequest> =
+            Unvalidated::from(update_entity_request).validate_with(&locked_attribute_types)?;
 
         let UpdateEntityRequest {
             entity_locator,
             attributes_to_update,
-        } = update_entity_request;
+        } = validated_update_entity_request.into_inner();
 
         // Update entity
         let existing_entity = match entity_locator {

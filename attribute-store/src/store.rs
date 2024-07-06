@@ -13,29 +13,14 @@ use thiserror::Error;
 pub enum AttributeStoreError {
     #[error("name `{0}` is not a valid symbol name")]
     InvalidSymbolName(Cow<'static, str>),
-    #[error("internal error: `{0}`")]
-    InternalError(&'static str),
     #[error("entity not found (locator: `{0:?}`)")]
     EntityNotFound(EntityLocator),
-    #[error("unregistered attribute type/s: `{0:?}`")]
-    UnregisteredAttributeTypes(Vec<Symbol>),
     #[error("attribute type `{0:?}` already exists")]
     AttributeTypeAlreadyExists(Entity),
-    #[error("attribute to update `{attribute_to_update:?}` does not have the expected value type `{expected_value_type:?}`")]
-    AttributeTypeConflictError {
-        attribute_to_update: AttributeToUpdate,
-        expected_value_type: ValueType,
-    },
     #[error("invalid value type entity ID: `{0:?}`")]
     InvalidValueType(EntityId),
-    #[error(
-        "attribute to update `{attribute_to_update:?}` is attempting to update immutable \
-         attribute type `{immutable_attribute_type:?}` which cannot be modified."
-    )]
-    ImmutableAttributeTypeError {
-        attribute_to_update: AttributeToUpdate,
-        immutable_attribute_type: Symbol,
-    },
+    #[error("validation error")]
+    ValidationError(#[from] garde::Report),
     #[error("internal error: `{message}`")]
     Other {
         message: String,
@@ -116,6 +101,8 @@ impl Deref for Symbol {
     }
 }
 
+pub type AttributeTypes = HashMap<Symbol, ValueType>;
+
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct AttributeType {
     pub symbol: Symbol,
@@ -165,9 +152,12 @@ pub enum AttributeValue {
     Bytes(Vec<u8>),
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
+#[garde(context(AttributeTypes))]
 pub struct EntityQuery {
+    #[garde(skip)]
     pub root: EntityQueryNode,
+    #[garde(inner(custom(is_known_attribute_type)))]
     pub attribute_types: Vec<Symbol>,
 }
 
@@ -234,15 +224,62 @@ pub struct OrQueryNode {
     pub clauses: Vec<EntityQueryNode>,
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
+#[garde(context(AttributeTypes))]
 pub struct AttributeToUpdate {
+    #[garde(custom(is_known_attribute_type), custom(not_immutable_attribute_type))]
     pub symbol: Symbol,
+    #[garde(custom(attribute_value_matches_attribute_type(&self.symbol)))]
     pub value: Option<AttributeValue>,
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+fn attribute_value_matches_attribute_type(
+    symbol: &Symbol,
+) -> impl FnOnce(&Option<AttributeValue>, &AttributeTypes) -> garde::Result + '_ {
+    move |value, attribute_types| {
+        let expected_attribute_type = attribute_types
+            .get(symbol)
+            .ok_or_else(|| garde::Error::new("cannot find value type for attribute type"))?;
+        match (value, expected_attribute_type) {
+            (None, _) => (),
+            (Some(AttributeValue::String(_)), ValueType::Text) => (),
+            (Some(AttributeValue::EntityId(_)), ValueType::EntityReference) => (),
+            (Some(AttributeValue::Bytes(_)), ValueType::Bytes) => (),
+            _ => {
+                return Err(garde::Error::new(format!(
+                    "incorrect value type, expected {:?}",
+                    expected_attribute_type
+                )));
+            }
+        };
+
+        Ok(())
+    }
+}
+
+fn not_immutable_attribute_type(symbol: &Symbol, _: &AttributeTypes) -> garde::Result {
+    let value_type_symbol: Symbol = BootstrapSymbol::ValueType.into();
+    if *symbol == value_type_symbol {
+        return Err(garde::Error::new("immutable attribute type"));
+    }
+
+    Ok(())
+}
+
+fn is_known_attribute_type(symbol: &Symbol, attribute_types: &AttributeTypes) -> garde::Result {
+    if !attribute_types.contains_key(symbol) {
+        return Err(garde::Error::new("unregistered attribute type"));
+    }
+
+    Ok(())
+}
+
+#[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
+#[garde(context(AttributeTypes))]
 pub struct UpdateEntityRequest {
+    #[garde(skip)]
     pub entity_locator: EntityLocator,
+    #[garde(dive)]
     pub attributes_to_update: Vec<AttributeToUpdate>,
 }
 
