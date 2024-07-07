@@ -5,8 +5,10 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
+use thiserror::Error;
 use tonic::transport::{Channel, Endpoint};
+use tonic::Status;
+use tonic_types::{ErrorDetail, ErrorDetails, StatusExt};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -28,8 +30,8 @@ enum Commands {
     Ping,
     /// Query for entities
     QueryEntities {
-        #[clap(short, long, default_value = "content")]
-        json: PathBuf,
+        #[clap(short, long)]
+        json: String,
     },
     /// Generate shell completions script
     GenerateCompletions {
@@ -39,8 +41,33 @@ enum Commands {
     },
 }
 
+#[derive(Error, Debug)]
+pub enum StatusError {
+    #[error("status error: details: `{1:?}")]
+    StatusError(#[source] Status, Vec<ErrorDetail>),
+}
+
+impl From<Status> for StatusError {
+    fn from(value: Status) -> Self {
+        let error_details = value.get_error_details_vec();
+        StatusError::StatusError(value, error_details)
+    }
+}
+
 fn print_completions<G: clap_complete::Generator>(gen: G, cmd: &mut clap::Command) {
     clap_complete::generate(gen, cmd, cmd.get_name().to_string(), &mut std::io::stdout());
+}
+
+fn parse_from_json_argument<T: serde::de::DeserializeOwned>(
+    json_argument: &str,
+) -> anyhow::Result<T> {
+    let parsed = if let Some(json_file) = json_argument.strip_prefix('@') {
+        serde_json::from_reader(BufReader::new(File::open(json_file)?))?
+    } else {
+        serde_json::from_str(json_argument)?
+    };
+
+    Ok(parsed)
 }
 
 #[tokio::main]
@@ -66,14 +93,13 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::QueryEntities { json } => {
-            let file = File::open(json)?;
-            let reader = BufReader::new(file);
-            let query_entities_request: QueryEntitiesRequest = serde_json::from_reader(reader)?;
+            let query_entities_request: QueryEntitiesRequest = parse_from_json_argument(json)?;
 
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
                 .query_entities(query_entities_request)
-                .await?;
+                .await
+                .map_err(StatusError::from)?;
             let query_entities_response = response.into_inner();
             println!("{}", serde_json::to_string(&query_entities_response)?);
 
