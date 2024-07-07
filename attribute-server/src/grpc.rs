@@ -2,9 +2,13 @@ use crate::convert::{ConversionError, IntoProto, TryFromProto};
 use attribute_grpc_api::pb;
 use attribute_store::store::{
     AttributeStoreError, CreateAttributeTypeRequest, EntityLocator, EntityQuery,
-    UpdateEntityRequest,
+    UpdateEntityRequest, WatchEntitiesRequest,
 };
+use std::pin::Pin;
 use thiserror::Error;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
+use tonic::codegen::tokio_stream::Stream;
 use tonic::{Code, Request, Response, Status};
 use tonic_types::{ErrorDetails, FieldViolation, StatusExt};
 use tracing::Level;
@@ -13,7 +17,7 @@ pub struct AttributeServer<T> {
     store: T,
 }
 
-impl<T: attribute_store::store::AttributeStore> AttributeServer<T> {
+impl<T: attribute_store::store::ThreadSafeAttributeStore> AttributeServer<T> {
     pub fn new(store: T) -> Self {
         AttributeServer { store }
     }
@@ -66,7 +70,7 @@ impl From<AttributeServerError> for Status {
 }
 
 #[tonic::async_trait]
-impl<T: attribute_store::store::AttributeStore> pb::attribute_store_server::AttributeStore
+impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_server::AttributeStore
     for AttributeServer<T>
 {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
@@ -188,5 +192,29 @@ impl<T: attribute_store::store::AttributeStore> pb::attribute_store_server::Attr
         };
 
         Ok(Response::new(update_entity_response))
+    }
+
+    type WatchEntitiesStream =
+        Pin<Box<dyn Stream<Item = Result<pb::WatchEntitiesEvent, Status>> + Send + 'static>>;
+
+    #[tracing::instrument(skip(self), err(level = Level::WARN))]
+    async fn watch_entities(
+        &self,
+        request: Request<pb::WatchEntitiesRequest>,
+    ) -> Result<Response<Self::WatchEntitiesStream>, Status> {
+        use AttributeServerError::*;
+
+        log::info!("Received watch entities request");
+
+        let watch_entities_request_proto = request.into_inner();
+        let _ = WatchEntitiesRequest::try_from_proto(watch_entities_request_proto)
+            .map_err(ConversionError)?;
+
+        let receiver = self.store.watch_entities_receiver();
+
+        let entities_stream = BroadcastStream::new(receiver).filter_map(|v| v.ok());
+        let response_stream = entities_stream.map(|event| Ok(event.into_proto()));
+
+        Ok(Response::new(Box::pin(response_stream)))
     }
 }

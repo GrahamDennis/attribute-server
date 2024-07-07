@@ -18,6 +18,8 @@ prost = "0.12.6"
 tonic-types = "0.11.0"
 log = "0.4.22"
 garde = { version = "0.20.0", features = ["derive", "regex"] }
+parking_lot = "0.12.3"
+tokio-stream = { version = "0.1.15", features = ["sync"] }
 
 [build-dependencies]
 tonic-build = "0.11.0"

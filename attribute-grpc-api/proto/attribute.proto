@@ -9,6 +9,7 @@ service AttributeStore {
   rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
   rpc QueryEntities(QueryEntitiesRequest) returns (QueryEntitiesResponse);
   rpc UpdateEntity(UpdateEntityRequest) returns (UpdateEntityResponse);
+  rpc WatchEntities(WatchEntitiesRequest) returns (stream WatchEntitiesEvent);
 }
 
 message PingRequest {}
@@ -117,4 +118,10 @@ message AttributeToUpdate {
 
 message UpdateEntityResponse {
   Entity entity = 1;
+}
+
+message WatchEntitiesRequest {}
+message WatchEntitiesEvent {
+  Entity before = 1;
+  Entity after = 2;
 }

@@ -1,6 +1,7 @@
 use crate::grpc::AttributeServer;
 use attribute_grpc_api::pb::attribute_store_server;
 use attribute_store::inmemory::InMemoryAttributeStore;
+use parking_lot::Mutex;
 use std::time::Duration;
 use tonic::transport::Server;
 use tracing::info;
@@ -22,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = "[::1]:50051".parse().unwrap();
 
-    let attribute_server = AttributeServer::new(InMemoryAttributeStore::new());
+    let attribute_server = AttributeServer::new(Mutex::new(InMemoryAttributeStore::new()));
 
     let layer = tower::ServiceBuilder::new()
         // Apply middleware from tower

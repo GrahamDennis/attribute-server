@@ -3,14 +3,16 @@ use attribute_grpc_api::pb;
 use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
     Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode,
-    MatchNoneQueryNode, OrQueryNode, Symbol, UpdateEntityRequest, ValueType,
+    MatchNoneQueryNode, OrQueryNode, Symbol, UpdateEntityRequest, ValueType, WatchEntitiesEvent,
+    WatchEntitiesRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
+use garde::Path;
 use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 
-pub mod internal {
+mod internal_pb {
     tonic::include_proto!("me.grahamdennis.attribute");
 }
 
@@ -117,7 +119,7 @@ impl TryFromProto<String> for EntityId {
         let decoded_bytes = URL_SAFE
             .decode(&value)
             .map_err(|err| InvalidEntityId(err.into()).at_path(parent()))?;
-        let internal_entity_id = internal::InternalEntityId::decode(&*decoded_bytes)
+        let internal_entity_id = internal_pb::InternalEntityId::decode(&*decoded_bytes)
             .map_err(|err| InvalidEntityId(err.into()).at_path(parent()))?;
         let entity_id: EntityId = internal_entity_id.database_id.into();
 
@@ -148,7 +150,7 @@ impl IntoProto<pb::Entity> for Entity {
 impl IntoProto<String> for EntityId {
     fn into_proto(self) -> String {
         let EntityId(database_id) = self;
-        let internal_entity_id = internal::InternalEntityId { database_id };
+        let internal_entity_id = internal_pb::InternalEntityId { database_id };
         URL_SAFE.encode(internal_entity_id.encode_to_vec())
     }
 }
@@ -483,5 +485,23 @@ impl TryFromProto<pb::attribute_value::AttributeValue> for AttributeValue {
                 AttributeValue::Bytes(bytes_value)
             }
         })
+    }
+}
+
+impl TryFromProto<pb::WatchEntitiesRequest> for WatchEntitiesRequest {
+    fn try_from_proto_with(
+        _value: pb::WatchEntitiesRequest,
+        _parent: &mut dyn FnMut() -> Path,
+    ) -> ConversionResult<Self> {
+        Ok(WatchEntitiesRequest {})
+    }
+}
+
+impl IntoProto<pb::WatchEntitiesEvent> for WatchEntitiesEvent {
+    fn into_proto(self) -> pb::WatchEntitiesEvent {
+        pb::WatchEntitiesEvent {
+            before: self.before.map(IntoProto::into_proto),
+            after: self.after.map(IntoProto::into_proto),
+        }
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::format_err;
 use attribute_grpc_api::pb::attribute_store_client::AttributeStoreClient;
-use attribute_grpc_api::pb::{PingRequest, QueryEntitiesRequest};
+use attribute_grpc_api::pb::{PingRequest, QueryEntitiesRequest, WatchEntitiesRequest};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::fmt::{Display, Formatter};
@@ -31,6 +31,10 @@ enum Commands {
     Ping,
     /// Query for entities
     QueryEntities {
+        #[clap(short, long)]
+        json: String,
+    },
+    WatchEntities {
         #[clap(short, long)]
         json: String,
     },
@@ -128,6 +132,21 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(StatusError::from)?;
             let query_entities_response = response.into_inner();
             println!("{}", serde_json::to_string(&query_entities_response)?);
+
+            Ok(())
+        }
+        Commands::WatchEntities { json } => {
+            let watch_entities_request: WatchEntitiesRequest = parse_from_json_argument(json)?;
+
+            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
+            let response = attribute_store_client
+                .watch_entities(watch_entities_request)
+                .await
+                .map_err(StatusError::from)?;
+            let mut stream = response.into_inner();
+            while let Some(event) = stream.message().await? {
+                println!("{}", serde_json::to_string(&event)?);
+            }
 
             Ok(())
         }

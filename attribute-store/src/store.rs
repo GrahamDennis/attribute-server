@@ -1,5 +1,6 @@
 use crate::store::AttributeStoreError::InvalidValueType;
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use regex::Regex;
 use std::borrow::Cow;
 use std::boxed::Box;
@@ -8,6 +9,7 @@ use std::convert::Into;
 use std::ops::Deref;
 use std::sync::OnceLock;
 use thiserror::Error;
+use tokio::sync::broadcast::Receiver;
 
 #[derive(Error, Debug)]
 pub enum AttributeStoreError {
@@ -301,8 +303,17 @@ pub struct CreateAttributeTypeRequest {
     pub attribute_type: AttributeType,
 }
 
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct WatchEntitiesRequest {}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct WatchEntitiesEvent {
+    pub before: Option<Entity>,
+    pub after: Option<Entity>,
+}
+
 #[async_trait]
-pub trait AttributeStore: Send + Sync + 'static {
+pub trait ThreadSafeAttributeStore: Send + Sync + 'static {
     async fn create_attribute_type(
         &self,
         create_attribute_type_request: &CreateAttributeTypeRequest,
@@ -322,6 +333,65 @@ pub trait AttributeStore: Send + Sync + 'static {
         &self,
         update_entity_request: &UpdateEntityRequest,
     ) -> Result<Entity, AttributeStoreError>;
+
+    fn watch_entities_receiver(&self) -> Receiver<WatchEntitiesEvent>;
+}
+
+pub trait AttributeStore {
+    fn create_attribute_type(
+        &mut self,
+        create_attribute_type_request: &CreateAttributeTypeRequest,
+    ) -> Result<Entity, AttributeStoreError>;
+
+    fn get_entity(&self, entity_locator: &EntityLocator) -> Result<Entity, AttributeStoreError>;
+
+    fn query_entities(
+        &self,
+        entity_query: &EntityQuery,
+    ) -> Result<Vec<EntityRow>, AttributeStoreError>;
+
+    fn update_entity(
+        &mut self,
+        update_entity_request: &UpdateEntityRequest,
+    ) -> Result<Entity, AttributeStoreError>;
+
+    fn watch_entities_receiver(&self) -> Receiver<WatchEntitiesEvent>;
+}
+
+#[async_trait]
+impl<T: AttributeStore + Send + 'static> ThreadSafeAttributeStore for Mutex<T> {
+    async fn create_attribute_type(
+        &self,
+        create_attribute_type_request: &CreateAttributeTypeRequest,
+    ) -> Result<Entity, AttributeStoreError> {
+        self.lock()
+            .create_attribute_type(create_attribute_type_request)
+    }
+
+    async fn get_entity(
+        &self,
+        entity_locator: &EntityLocator,
+    ) -> Result<Entity, AttributeStoreError> {
+        self.lock().get_entity(entity_locator)
+    }
+
+    async fn query_entities(
+        &self,
+        entity_query: &EntityQuery,
+    ) -> Result<Vec<EntityRow>, AttributeStoreError> {
+        self.lock().query_entities(entity_query)
+    }
+
+    async fn update_entity(
+        &self,
+        update_entity_request: &UpdateEntityRequest,
+    ) -> Result<Entity, AttributeStoreError> {
+        self.lock().update_entity(update_entity_request)
+    }
+
+    fn watch_entities_receiver(&self) -> Receiver<WatchEntitiesEvent> {
+        self.lock().watch_entities_receiver()
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]

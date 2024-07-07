@@ -1,18 +1,19 @@
 use crate::store::{
-    AttributeStore, AttributeStoreError, AttributeTypes, AttributeValue, BootstrapSymbol,
-    CreateAttributeTypeRequest, Entity, EntityId, EntityLocator, EntityQuery, EntityRow, Symbol,
-    UpdateEntityRequest, ValueType,
+    AttributeStore, AttributeStoreError, AttributeToUpdate, AttributeTypes, AttributeValue,
+    BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId, EntityLocator, EntityQuery,
+    EntityRow, Symbol, UpdateEntityRequest, ValueType, WatchEntitiesEvent,
 };
-use async_trait::async_trait;
 use garde::Unvalidated;
-use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::Level;
 
 #[derive(Debug)]
 pub struct InMemoryAttributeStore {
-    attribute_types: Mutex<AttributeTypes>,
-    entities: Mutex<Vec<Entity>>,
+    attribute_types: AttributeTypes,
+    entities: Vec<Entity>,
+    watch_entities_channel: Sender<WatchEntitiesEvent>,
 }
 
 impl InMemoryAttributeStore {
@@ -50,15 +51,12 @@ impl InMemoryAttributeStore {
                 _ => None,
             })
             .collect();
+        let (tx, _) = broadcast::channel(16);
         InMemoryAttributeStore {
-            attribute_types: Mutex::new(attribute_types),
-            entities: Mutex::new(entities),
+            attribute_types,
+            entities,
+            watch_entities_channel: tx,
         }
-    }
-
-    #[inline]
-    fn all_locks(&self) -> (MutexGuard<AttributeTypes>, MutexGuard<Vec<Entity>>) {
-        (self.attribute_types.lock(), self.entities.lock())
     }
 
     fn bootstrap_entities() -> Vec<Entity> {
@@ -71,86 +69,103 @@ impl InMemoryAttributeStore {
             BootstrapSymbol::ValueTypeEnum(ValueType::Bytes).into(),
         ]
     }
-}
 
-fn insert_new_entity_with_attributes(
-    entities: &mut Vec<Entity>,
-    attributes: HashMap<Symbol, AttributeValue>,
-) -> Result<Entity, AttributeStoreError> {
-    use AttributeStoreError::*;
-
-    let database_id = entities.len();
-    let entity = Entity {
-        entity_id: EntityId(i64::try_from(database_id).map_err(|err| Other {
-            message: format!(
-                "Failed to convert database id `{database_id}` to EntityId due to error `{err:?}`"
-            ),
-            source: err.into(),
-        })?),
-        attributes,
-    };
-
-    entities.push(entity.clone());
-
-    Ok(entity)
-}
-
-#[async_trait]
-impl AttributeStore for InMemoryAttributeStore {
-    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
-    async fn create_attribute_type(
-        &self,
-        create_attribute_type_request: &CreateAttributeTypeRequest,
+    fn insert_new_entity_with_attributes(
+        &mut self,
+        attributes: HashMap<Symbol, AttributeValue>,
     ) -> Result<Entity, AttributeStoreError> {
         use AttributeStoreError::*;
 
+        let database_id = self.entities.len();
+        let entity = Entity {
+            entity_id: EntityId(i64::try_from(database_id).map_err(|err| Other {
+                message: format!(
+                    "Failed to convert database id `{database_id}` to EntityId due to error `{err:?}`"
+                ),
+                source: err.into(),
+            })?),
+            attributes,
+        };
+
+        self.entities.push(entity.clone());
+
+        let _ = self.watch_entities_channel.send(WatchEntitiesEvent {
+            before: None,
+            after: Some(entity.clone()),
+        });
+
+        Ok(entity)
+    }
+
+    fn update_existing_entity(
+        entity: &mut Entity,
+        attributes_to_update: &[AttributeToUpdate],
+        watch_entities_channel: &Sender<WatchEntitiesEvent>,
+    ) -> Result<Entity, AttributeStoreError> {
+        let before = entity.clone();
+        for attribute_to_update in attributes_to_update {
+            match &attribute_to_update.value {
+                None => entity.attributes.remove(&attribute_to_update.symbol),
+                Some(attribute_value) => entity
+                    .attributes
+                    .insert(attribute_to_update.symbol.clone(), attribute_value.clone()),
+            };
+        }
+        let after = entity.clone();
+
+        let _ = watch_entities_channel.send(WatchEntitiesEvent {
+            before: Some(before),
+            after: Some(after.clone()),
+        });
+
+        Ok(after)
+    }
+}
+
+impl AttributeStore for InMemoryAttributeStore {
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    fn create_attribute_type(
+        &mut self,
+        create_attribute_type_request: &CreateAttributeTypeRequest,
+    ) -> Result<Entity, AttributeStoreError> {
         log::trace!("Received create_attribute_type request");
 
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
-        let (mut locked_attribute_types, mut locked_entities) = self.all_locks();
 
         // validate
-        let validated_request = Unvalidated::new(create_attribute_type_request)
-            .validate_with(&locked_attribute_types)?;
+        let validated_request =
+            Unvalidated::new(create_attribute_type_request).validate_with(&self.attribute_types)?;
         let CreateAttributeTypeRequest { attribute_type } = validated_request.into_inner();
 
-        let database_id = locked_entities.len();
-        let entity = Entity {
-            entity_id: EntityId(i64::try_from(database_id)
-                .map_err(|err| Other {
-                    message: format!("Failed to convert database id `{database_id}` to EntityId due to error `{err:?}`"),
-                    source: err.into()
-                }
-                )?
+        let entity = self.insert_new_entity_with_attributes(HashMap::from([
+            (
+                symbol_name_symbol,
+                AttributeValue::String(attribute_type.symbol.to_string()),
             ),
-            attributes: HashMap::from([
-                (symbol_name_symbol, AttributeValue::String(attribute_type.symbol.to_string())),
-                (BootstrapSymbol::ValueType.into(), AttributeValue::EntityId(attribute_type.value_type.into()))
-            ])
-        };
+            (
+                BootstrapSymbol::ValueType.into(),
+                AttributeValue::EntityId(attribute_type.value_type.into()),
+            ),
+        ]))?;
 
-        locked_entities.push(entity.clone());
-        locked_attribute_types.insert(attribute_type.symbol.clone(), attribute_type.value_type);
+        self.attribute_types
+            .insert(attribute_type.symbol.clone(), attribute_type.value_type);
 
         Ok(entity)
     }
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
-    async fn get_entity(
-        &self,
-        entity_locator: &EntityLocator,
-    ) -> Result<Entity, AttributeStoreError> {
+    fn get_entity(&self, entity_locator: &EntityLocator) -> Result<Entity, AttributeStoreError> {
         use AttributeStoreError::*;
 
         log::trace!("Received get_entity request");
 
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
-        let locked_entities = self.entities.lock();
         let entity = match entity_locator {
-            EntityLocator::EntityId(entity_id) => locked_entities.get(usize::try_from(*entity_id)?),
+            EntityLocator::EntityId(entity_id) => self.entities.get(usize::try_from(*entity_id)?),
             EntityLocator::Symbol(symbol) => {
                 let expected_attribute_value = AttributeValue::String(symbol.clone().into());
-                locked_entities.iter().find(|entity| {
+                self.entities.iter().find(|entity| {
                     entity
                         .attributes
                         .get(&symbol_name_symbol)
@@ -166,23 +181,22 @@ impl AttributeStore for InMemoryAttributeStore {
     }
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
-    async fn query_entities(
+    fn query_entities(
         &self,
         entity_query: &EntityQuery,
     ) -> Result<Vec<EntityRow>, AttributeStoreError> {
         log::trace!("Received query_entities request");
 
-        let (locked_attribute_types, locked_entities) = self.all_locks();
-
         // validate
         let validated_entity_query =
-            Unvalidated::new(entity_query).validate_with(&locked_attribute_types)?;
+            Unvalidated::new(entity_query).validate_with(&self.attribute_types)?;
         let EntityQuery {
             root,
             attribute_types,
         } = validated_entity_query.into_inner();
 
-        let entity_rows = locked_entities
+        let entity_rows = self
+            .entities
             .iter()
             .filter(root.to_predicate())
             .map(|entity| entity.to_entity_row(attribute_types))
@@ -192,18 +206,17 @@ impl AttributeStore for InMemoryAttributeStore {
     }
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
-    async fn update_entity(
-        &self,
+    fn update_entity(
+        &mut self,
         update_entity_request: &UpdateEntityRequest,
     ) -> Result<Entity, AttributeStoreError> {
         log::trace!("Received query_entities request");
 
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
-        let (locked_attribute_types, mut locked_entities) = self.all_locks();
 
         // Validate
         let validated_update_entity_request =
-            Unvalidated::from(update_entity_request).validate_with(&locked_attribute_types)?;
+            Unvalidated::from(update_entity_request).validate_with(&self.attribute_types)?;
         let UpdateEntityRequest {
             entity_locator,
             attributes_to_update,
@@ -212,11 +225,11 @@ impl AttributeStore for InMemoryAttributeStore {
         // Update entity
         let existing_entity = match entity_locator {
             EntityLocator::EntityId(entity_id) => {
-                locked_entities.get_mut(usize::try_from(*entity_id)?)
+                self.entities.get_mut(usize::try_from(*entity_id)?)
             }
             EntityLocator::Symbol(symbol) => {
                 let expected_attribute_value = AttributeValue::String(symbol.clone().into());
-                locked_entities.iter_mut().find(|entity| {
+                self.entities.iter_mut().find(|entity| {
                     entity
                         .attributes
                         .get(&symbol_name_symbol)
@@ -227,34 +240,34 @@ impl AttributeStore for InMemoryAttributeStore {
             }
         };
 
-        let updated_entity = match existing_entity {
-            None => insert_new_entity_with_attributes(
-                &mut locked_entities,
-                update_entity_request
-                    .attributes_to_update
-                    .iter()
-                    .filter_map(|attribute_to_update| {
-                        attribute_to_update
-                            .value
-                            .clone()
-                            .map(|value| (attribute_to_update.symbol.clone(), value))
-                    })
-                    .collect(),
-            )?,
-            Some(entity) => {
-                for attribute_to_update in attributes_to_update {
-                    match &attribute_to_update.value {
-                        None => entity.attributes.remove(&attribute_to_update.symbol),
-                        Some(attribute_value) => entity
-                            .attributes
-                            .insert(attribute_to_update.symbol.clone(), attribute_value.clone()),
-                    };
-                }
-                entity.clone()
+        match existing_entity {
+            None =>
+            // FIXME: Validate that the new entity matches the provided locator
+            {
+                self.insert_new_entity_with_attributes(
+                    update_entity_request
+                        .attributes_to_update
+                        .iter()
+                        .filter_map(|attribute_to_update| {
+                            attribute_to_update
+                                .value
+                                .clone()
+                                .map(|value| (attribute_to_update.symbol.clone(), value))
+                        })
+                        .collect(),
+                )
             }
-        };
+            Some(entity) => Self::update_existing_entity(
+                entity,
+                attributes_to_update,
+                &self.watch_entities_channel,
+            ),
+        }
+    }
 
-        Ok(updated_entity)
+    #[tracing::instrument(skip(self))]
+    fn watch_entities_receiver(&self) -> Receiver<WatchEntitiesEvent> {
+        self.watch_entities_channel.subscribe()
     }
 }
 
@@ -263,28 +276,26 @@ mod tests {
     use super::*;
     use crate::store::{EntityQueryNode, MatchAllQueryNode};
 
-    #[tokio::test]
-    async fn can_fetch_by_entity_id() {
+    #[test]
+    fn can_fetch_by_entity_id() {
         let store = InMemoryAttributeStore::new();
         let entity_id_entity = store
             .get_entity(&EntityLocator::EntityId(BootstrapSymbol::EntityId.into()))
-            .await
             .unwrap();
         assert_eq!(entity_id_entity, BootstrapSymbol::EntityId.into());
     }
 
-    #[tokio::test]
-    async fn can_fetch_by_symbol() {
+    #[test]
+    fn can_fetch_by_symbol() {
         let store = InMemoryAttributeStore::new();
         let entity_id_entity = store
             .get_entity(&EntityLocator::Symbol(BootstrapSymbol::EntityId.into()))
-            .await
             .unwrap();
         assert_eq!(entity_id_entity, BootstrapSymbol::EntityId.into());
     }
 
-    #[tokio::test]
-    async fn can_query_all() {
+    #[test]
+    fn can_query_all() {
         let store = InMemoryAttributeStore::new();
         let entities = store
             .query_entities(&EntityQuery {
@@ -294,7 +305,6 @@ mod tests {
                 ],
                 root: EntityQueryNode::MatchAll(MatchAllQueryNode),
             })
-            .await
             .unwrap();
         assert_eq!(
             entities,
