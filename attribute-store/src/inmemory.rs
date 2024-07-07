@@ -1,10 +1,10 @@
 use crate::store::{
-    AttributeStore, AttributeStoreError, AttributeType, AttributeTypes, AttributeValue,
-    BootstrapSymbol, Entity, EntityId, EntityLocator, EntityQuery, EntityRow, Symbol,
+    AttributeStore, AttributeStoreError, AttributeTypes, AttributeValue, BootstrapSymbol,
+    CreateAttributeTypeRequest, Entity, EntityId, EntityLocator, EntityQuery, EntityRow, Symbol,
     UpdateEntityRequest, ValueType,
 };
 use async_trait::async_trait;
-use garde::{Unvalidated, Valid};
+use garde::Unvalidated;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashMap;
 use tracing::Level;
@@ -100,7 +100,7 @@ impl AttributeStore for InMemoryAttributeStore {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn create_attribute_type(
         &self,
-        attribute_type: &AttributeType,
+        create_attribute_type_request: &CreateAttributeTypeRequest,
     ) -> Result<Entity, AttributeStoreError> {
         use AttributeStoreError::*;
 
@@ -109,21 +109,10 @@ impl AttributeStore for InMemoryAttributeStore {
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
         let (mut locked_attribute_types, mut locked_entities) = self.all_locks();
 
-        let attribute_type_symbol_name: &str = &attribute_type.symbol;
-        // FIXME: validate against attribute types
-        if let Some(matching_entity) = locked_entities.iter().find(|entity| {
-            entity
-                .attributes
-                .get(&symbol_name_symbol)
-                .is_some_and(|value| match value {
-                    AttributeValue::String(symbol_name) => {
-                        symbol_name.eq(attribute_type_symbol_name)
-                    }
-                    _ => false,
-                })
-        }) {
-            return Err(AttributeTypeAlreadyExists(matching_entity.clone()));
-        }
+        // validate
+        let validated_request = Unvalidated::new(create_attribute_type_request)
+            .validate_with(&locked_attribute_types)?;
+        let CreateAttributeTypeRequest { attribute_type } = validated_request.into_inner();
 
         let database_id = locked_entities.len();
         let entity = Entity {
@@ -135,7 +124,7 @@ impl AttributeStore for InMemoryAttributeStore {
                 )?
             ),
             attributes: HashMap::from([
-                (symbol_name_symbol, AttributeValue::String(attribute_type_symbol_name.to_string())),
+                (symbol_name_symbol, AttributeValue::String(attribute_type.symbol.to_string())),
                 (BootstrapSymbol::ValueType.into(), AttributeValue::EntityId(attribute_type.value_type.into()))
             ])
         };
@@ -185,6 +174,7 @@ impl AttributeStore for InMemoryAttributeStore {
 
         let (locked_attribute_types, locked_entities) = self.all_locks();
 
+        // validate
         let validated_entity_query =
             Unvalidated::new(entity_query).validate_with(&locked_attribute_types)?;
         let EntityQuery {
@@ -211,11 +201,9 @@ impl AttributeStore for InMemoryAttributeStore {
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
         let (locked_attribute_types, mut locked_entities) = self.all_locks();
 
-        // Validate that all attributes are known and have the correct types
-        // FIXME: Make this return ValidatedUpdateEntityRequest
-        let validated_update_entity_request: Valid<&UpdateEntityRequest> =
+        // Validate
+        let validated_update_entity_request =
             Unvalidated::from(update_entity_request).validate_with(&locked_attribute_types)?;
-
         let UpdateEntityRequest {
             entity_locator,
             attributes_to_update,

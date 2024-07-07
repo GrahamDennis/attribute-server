@@ -274,6 +274,17 @@ fn is_known_attribute_type(symbol: &Symbol, attribute_types: &AttributeTypes) ->
     Ok(())
 }
 
+fn is_new_attribute_type(
+    attribute_type: &AttributeType,
+    attribute_types: &AttributeTypes,
+) -> garde::Result {
+    if attribute_types.contains_key(&attribute_type.symbol) {
+        return Err(garde::Error::new("attribute type already exists"));
+    }
+
+    Ok(())
+}
+
 #[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
 #[garde(context(AttributeTypes))]
 pub struct UpdateEntityRequest {
@@ -283,11 +294,18 @@ pub struct UpdateEntityRequest {
     pub attributes_to_update: Vec<AttributeToUpdate>,
 }
 
+#[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
+#[garde(context(AttributeTypes))]
+pub struct CreateAttributeTypeRequest {
+    #[garde(custom(is_new_attribute_type))]
+    pub attribute_type: AttributeType,
+}
+
 #[async_trait]
 pub trait AttributeStore: Send + Sync + 'static {
     async fn create_attribute_type(
         &self,
-        attribute_type: &AttributeType,
+        create_attribute_type_request: &CreateAttributeTypeRequest,
     ) -> Result<Entity, AttributeStoreError>;
 
     async fn get_entity(

@@ -1,9 +1,9 @@
 use anyhow::format_err;
 use attribute_grpc_api::grpc;
 use attribute_store::store::{
-    AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, Entity, EntityId,
-    EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode, MatchNoneQueryNode,
-    OrQueryNode, Symbol, UpdateEntityRequest, ValueType,
+    AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
+    Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode,
+    MatchNoneQueryNode, OrQueryNode, Symbol, UpdateEntityRequest, ValueType,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
@@ -311,7 +311,7 @@ impl IntoProto<grpc::EntityRow> for EntityRow {
     }
 }
 
-impl TryFromProto<grpc::CreateAttributeTypeRequest> for AttributeType {
+impl TryFromProto<grpc::CreateAttributeTypeRequest> for CreateAttributeTypeRequest {
     fn try_from_proto_with(
         value: grpc::CreateAttributeTypeRequest,
         mut parent: &mut dyn FnMut() -> garde::Path,
@@ -324,7 +324,9 @@ impl TryFromProto<grpc::CreateAttributeTypeRequest> for AttributeType {
             .attribute_type
             .ok_or_else(|| FieldMissing.at_path(path()))?;
 
-        AttributeType::try_from_proto_with(attribute_type_proto, &mut path)
+        Ok(CreateAttributeTypeRequest {
+            attribute_type: AttributeType::try_from_proto_with(attribute_type_proto, &mut path)?,
+        })
     }
 }
 
