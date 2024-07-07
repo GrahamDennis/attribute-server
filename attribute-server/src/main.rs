@@ -1,5 +1,5 @@
 use crate::grpc::AttributeServer;
-use attribute_grpc_api::grpc::attribute_store_server;
+use attribute_grpc_api::pb::attribute_store_server;
 use attribute_store::inmemory::InMemoryAttributeStore;
 use std::time::Duration;
 use tonic::transport::Server;

@@ -1,6 +1,6 @@
 use anyhow::format_err;
-use attribute_grpc_api::grpc::attribute_store_client::AttributeStoreClient;
-use attribute_grpc_api::grpc::{PingRequest, QueryEntitiesRequest};
+use attribute_grpc_api::pb::attribute_store_client::AttributeStoreClient;
+use attribute_grpc_api::pb::{PingRequest, QueryEntitiesRequest};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::fmt::{Display, Formatter};
@@ -9,7 +9,7 @@ use std::io::BufReader;
 use thiserror::Error;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Status;
-use tonic_types::{ErrorDetail, ErrorDetails, StatusExt};
+use tonic_types::{ErrorDetail, StatusExt};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 

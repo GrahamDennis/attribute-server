@@ -1,5 +1,5 @@
 use crate::convert::{ConversionError, IntoProto, TryFromProto};
-use attribute_grpc_api::grpc;
+use attribute_grpc_api::pb;
 use attribute_store::store::{
     AttributeStoreError, CreateAttributeTypeRequest, EntityLocator, EntityQuery,
     UpdateEntityRequest,
@@ -66,18 +66,18 @@ impl From<AttributeServerError> for Status {
 }
 
 #[tonic::async_trait]
-impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::AttributeStore
+impl<T: attribute_store::store::AttributeStore> pb::attribute_store_server::AttributeStore
     for AttributeServer<T>
 {
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn ping(
         &self,
-        request: Request<grpc::PingRequest>,
-    ) -> Result<Response<grpc::PingResponse>, Status> {
+        request: Request<pb::PingRequest>,
+    ) -> Result<Response<pb::PingResponse>, Status> {
         log::info!("Received ping request");
 
-        let _: grpc::PingRequest = request.into_inner();
-        let ping_response = grpc::PingResponse {};
+        let _: pb::PingRequest = request.into_inner();
+        let ping_response = pb::PingResponse {};
 
         Ok(Response::new(ping_response))
     }
@@ -85,8 +85,8 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn create_attribute_type(
         &self,
-        request: Request<grpc::CreateAttributeTypeRequest>,
-    ) -> Result<Response<grpc::CreateAttributeTypeResponse>, Status> {
+        request: Request<pb::CreateAttributeTypeRequest>,
+    ) -> Result<Response<pb::CreateAttributeTypeResponse>, Status> {
         use AttributeServerError::*;
 
         log::info!("Received create attribute type request");
@@ -102,7 +102,7 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
             .await
             .map_err(AttributeStoreError)?;
 
-        let create_attribute_type_response = grpc::CreateAttributeTypeResponse {
+        let create_attribute_type_response = pb::CreateAttributeTypeResponse {
             entity: Some(entity.into_proto()),
         };
 
@@ -112,8 +112,8 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn get_entity(
         &self,
-        request: Request<grpc::GetEntityRequest>,
-    ) -> Result<Response<grpc::GetEntityResponse>, Status> {
+        request: Request<pb::GetEntityRequest>,
+    ) -> Result<Response<pb::GetEntityResponse>, Status> {
         use AttributeServerError::*;
 
         log::info!("Received get entity request");
@@ -127,7 +127,7 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
             .get_entity(&entity_locator)
             .await
             .map_err(AttributeStoreError)?;
-        let get_entity_response = grpc::GetEntityResponse {
+        let get_entity_response = pb::GetEntityResponse {
             entity: Some(entity.into_proto()),
         };
 
@@ -137,8 +137,8 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn query_entities(
         &self,
-        request: Request<grpc::QueryEntitiesRequest>,
-    ) -> Result<Response<grpc::QueryEntitiesResponse>, Status> {
+        request: Request<pb::QueryEntitiesRequest>,
+    ) -> Result<Response<pb::QueryEntitiesResponse>, Status> {
         use AttributeServerError::*;
 
         log::info!("Received query entities request");
@@ -153,7 +153,7 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
             .await
             .map_err(AttributeStoreError)?;
 
-        let query_entities_response = grpc::QueryEntitiesResponse {
+        let query_entities_response = pb::QueryEntitiesResponse {
             rows: entity_rows
                 .into_iter()
                 .map(|entity_row| entity_row.into_proto())
@@ -166,8 +166,8 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     async fn update_entity(
         &self,
-        request: Request<grpc::UpdateEntityRequest>,
-    ) -> Result<Response<grpc::UpdateEntityResponse>, Status> {
+        request: Request<pb::UpdateEntityRequest>,
+    ) -> Result<Response<pb::UpdateEntityResponse>, Status> {
         use AttributeServerError::*;
 
         log::info!("Received update entity request");
@@ -183,7 +183,7 @@ impl<T: attribute_store::store::AttributeStore> grpc::attribute_store_server::At
             .await
             .map_err(AttributeStoreError)?;
 
-        let update_entity_response = grpc::UpdateEntityResponse {
+        let update_entity_response = pb::UpdateEntityResponse {
             entity: Some(updated_entity.into_proto()),
         };
 

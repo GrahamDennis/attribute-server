@@ -1,5 +1,5 @@
 use anyhow::format_err;
-use attribute_grpc_api::grpc;
+use attribute_grpc_api::pb;
 use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
     Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode,
@@ -55,9 +55,9 @@ pub trait IntoProto<T>: Sized {
     fn into_proto(self) -> T;
 }
 
-impl TryFromProto<grpc::GetEntityRequest> for EntityLocator {
+impl TryFromProto<pb::GetEntityRequest> for EntityLocator {
     fn try_from_proto_with(
-        value: grpc::GetEntityRequest,
+        value: pb::GetEntityRequest,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -72,9 +72,9 @@ impl TryFromProto<grpc::GetEntityRequest> for EntityLocator {
     }
 }
 
-impl TryFromProto<grpc::EntityLocator> for EntityLocator {
+impl TryFromProto<pb::EntityLocator> for EntityLocator {
     fn try_from_proto_with(
-        value: grpc::EntityLocator,
+        value: pb::EntityLocator,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -87,12 +87,12 @@ impl TryFromProto<grpc::EntityLocator> for EntityLocator {
     }
 }
 
-impl TryFromProto<grpc::entity_locator::Locator> for EntityLocator {
+impl TryFromProto<pb::entity_locator::Locator> for EntityLocator {
     fn try_from_proto_with(
-        value: grpc::entity_locator::Locator,
+        value: pb::entity_locator::Locator,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
-        use grpc::entity_locator::Locator;
+        use pb::entity_locator::Locator;
 
         match value {
             Locator::EntityId(entity_id) => {
@@ -136,9 +136,9 @@ impl TryFromProto<String> for Symbol {
     }
 }
 
-impl IntoProto<grpc::Entity> for Entity {
-    fn into_proto(self) -> grpc::Entity {
-        grpc::Entity {
+impl IntoProto<pb::Entity> for Entity {
+    fn into_proto(self) -> pb::Entity {
+        pb::Entity {
             entity_id: self.entity_id.into_proto(),
             attributes: self.attributes.into_proto(),
         }
@@ -153,41 +153,39 @@ impl IntoProto<String> for EntityId {
     }
 }
 
-impl IntoProto<HashMap<String, grpc::AttributeValue>> for HashMap<Symbol, AttributeValue> {
-    fn into_proto(self) -> HashMap<String, grpc::AttributeValue> {
+impl IntoProto<HashMap<String, pb::AttributeValue>> for HashMap<Symbol, AttributeValue> {
+    fn into_proto(self) -> HashMap<String, pb::AttributeValue> {
         self.into_iter()
             .map(|(symbol, attribute_value)| (symbol.into(), attribute_value.into_proto()))
             .collect()
     }
 }
 
-impl IntoProto<grpc::AttributeValue> for AttributeValue {
-    fn into_proto(self) -> grpc::AttributeValue {
-        grpc::AttributeValue {
+impl IntoProto<pb::AttributeValue> for AttributeValue {
+    fn into_proto(self) -> pb::AttributeValue {
+        pb::AttributeValue {
             attribute_value: Some(self.into_proto()),
         }
     }
 }
 
-impl IntoProto<grpc::attribute_value::AttributeValue> for AttributeValue {
-    fn into_proto(self) -> grpc::attribute_value::AttributeValue {
+impl IntoProto<pb::attribute_value::AttributeValue> for AttributeValue {
+    fn into_proto(self) -> pb::attribute_value::AttributeValue {
         match self {
             AttributeValue::String(string_value) => {
-                grpc::attribute_value::AttributeValue::StringValue(string_value)
+                pb::attribute_value::AttributeValue::StringValue(string_value)
             }
             AttributeValue::EntityId(entity_id) => {
-                grpc::attribute_value::AttributeValue::EntityIdValue(entity_id.into_proto())
+                pb::attribute_value::AttributeValue::EntityIdValue(entity_id.into_proto())
             }
-            AttributeValue::Bytes(bytes) => {
-                grpc::attribute_value::AttributeValue::BytesValue(bytes)
-            }
+            AttributeValue::Bytes(bytes) => pb::attribute_value::AttributeValue::BytesValue(bytes),
         }
     }
 }
 
-impl TryFromProto<grpc::QueryEntitiesRequest> for EntityQuery {
+impl TryFromProto<pb::QueryEntitiesRequest> for EntityQuery {
     fn try_from_proto_with(
-        value: grpc::QueryEntitiesRequest,
+        value: pb::QueryEntitiesRequest,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -218,9 +216,9 @@ impl TryFromProto<grpc::QueryEntitiesRequest> for EntityQuery {
     }
 }
 
-impl TryFromProto<grpc::EntityQueryNode> for EntityQueryNode {
+impl TryFromProto<pb::EntityQueryNode> for EntityQueryNode {
     fn try_from_proto_with(
-        value: grpc::EntityQueryNode,
+        value: pb::EntityQueryNode,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -232,12 +230,12 @@ impl TryFromProto<grpc::EntityQueryNode> for EntityQueryNode {
     }
 }
 
-impl TryFromProto<grpc::entity_query_node::Query> for EntityQueryNode {
+impl TryFromProto<pb::entity_query_node::Query> for EntityQueryNode {
     fn try_from_proto_with(
-        value: grpc::entity_query_node::Query,
+        value: pb::entity_query_node::Query,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
-        use grpc::entity_query_node::Query;
+        use pb::entity_query_node::Query;
 
         Ok(match value {
             Query::MatchAll(_) => EntityQueryNode::MatchAll(MatchAllQueryNode),
@@ -257,9 +255,9 @@ impl TryFromProto<grpc::entity_query_node::Query> for EntityQueryNode {
     }
 }
 
-impl TryFromProto<grpc::AndQueryNode> for AndQueryNode {
+impl TryFromProto<pb::AndQueryNode> for AndQueryNode {
     fn try_from_proto_with(
-        value: grpc::AndQueryNode,
+        value: pb::AndQueryNode,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         let mut path = garde::util::nested_path!(parent, "clauses");
@@ -269,9 +267,9 @@ impl TryFromProto<grpc::AndQueryNode> for AndQueryNode {
     }
 }
 
-impl TryFromProto<grpc::OrQueryNode> for OrQueryNode {
+impl TryFromProto<pb::OrQueryNode> for OrQueryNode {
     fn try_from_proto_with(
-        value: grpc::OrQueryNode,
+        value: pb::OrQueryNode,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         let mut path = garde::util::nested_path!(parent, "clauses");
@@ -281,9 +279,9 @@ impl TryFromProto<grpc::OrQueryNode> for OrQueryNode {
     }
 }
 
-impl TryFromProto<Vec<grpc::EntityQueryNode>> for Vec<EntityQueryNode> {
+impl TryFromProto<Vec<pb::EntityQueryNode>> for Vec<EntityQueryNode> {
     fn try_from_proto_with(
-        value: Vec<grpc::EntityQueryNode>,
+        value: Vec<pb::EntityQueryNode>,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         value
@@ -297,13 +295,13 @@ impl TryFromProto<Vec<grpc::EntityQueryNode>> for Vec<EntityQueryNode> {
     }
 }
 
-impl IntoProto<grpc::EntityRow> for EntityRow {
-    fn into_proto(self) -> grpc::EntityRow {
-        grpc::EntityRow {
+impl IntoProto<pb::EntityRow> for EntityRow {
+    fn into_proto(self) -> pb::EntityRow {
+        pb::EntityRow {
             values: self
                 .values
                 .into_iter()
-                .map(|value| grpc::NullableAttributeValue {
+                .map(|value| pb::NullableAttributeValue {
                     value: value.map(|v| v.into_proto()),
                 })
                 .collect(),
@@ -311,9 +309,9 @@ impl IntoProto<grpc::EntityRow> for EntityRow {
     }
 }
 
-impl TryFromProto<grpc::CreateAttributeTypeRequest> for CreateAttributeTypeRequest {
+impl TryFromProto<pb::CreateAttributeTypeRequest> for CreateAttributeTypeRequest {
     fn try_from_proto_with(
-        value: grpc::CreateAttributeTypeRequest,
+        value: pb::CreateAttributeTypeRequest,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -330,9 +328,9 @@ impl TryFromProto<grpc::CreateAttributeTypeRequest> for CreateAttributeTypeReque
     }
 }
 
-impl TryFromProto<grpc::AttributeType> for AttributeType {
+impl TryFromProto<pb::AttributeType> for AttributeType {
     fn try_from_proto_with(
-        value: grpc::AttributeType,
+        value: pb::AttributeType,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -344,7 +342,7 @@ impl TryFromProto<grpc::AttributeType> for AttributeType {
             },
             value_type: {
                 let mut path = garde::util::nested_path!(parent, "value_type");
-                let value_type_proto = grpc::ValueType::try_from(value.value_type)
+                let value_type_proto = pb::ValueType::try_from(value.value_type)
                     .map_err(|err| InvalidValueType(err.into()).at_path(path()))?;
                 ValueType::try_from_proto_with(value_type_proto, &mut path)?
             },
@@ -352,27 +350,27 @@ impl TryFromProto<grpc::AttributeType> for AttributeType {
     }
 }
 
-impl TryFromProto<grpc::ValueType> for ValueType {
+impl TryFromProto<pb::ValueType> for ValueType {
     fn try_from_proto_with(
-        value: grpc::ValueType,
+        value: pb::ValueType,
         parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
 
         match value {
-            grpc::ValueType::Invalid => {
+            pb::ValueType::Invalid => {
                 Err(InvalidValueType(format_err!("value_type = 0 is not valid")).at_path(parent()))
             }
-            grpc::ValueType::Text => Ok(ValueType::Text),
-            grpc::ValueType::EntityReference => Ok(ValueType::EntityReference),
-            grpc::ValueType::Bytes => Ok(ValueType::Bytes),
+            pb::ValueType::Text => Ok(ValueType::Text),
+            pb::ValueType::EntityReference => Ok(ValueType::EntityReference),
+            pb::ValueType::Bytes => Ok(ValueType::Bytes),
         }
     }
 }
 
-impl TryFromProto<grpc::UpdateEntityRequest> for UpdateEntityRequest {
+impl TryFromProto<pb::UpdateEntityRequest> for UpdateEntityRequest {
     fn try_from_proto_with(
-        value: grpc::UpdateEntityRequest,
+        value: pb::UpdateEntityRequest,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -406,9 +404,9 @@ impl TryFromProto<grpc::UpdateEntityRequest> for UpdateEntityRequest {
     }
 }
 
-impl TryFromProto<grpc::AttributeToUpdate> for AttributeToUpdate {
+impl TryFromProto<pb::AttributeToUpdate> for AttributeToUpdate {
     fn try_from_proto_with(
-        value: grpc::AttributeToUpdate,
+        value: pb::AttributeToUpdate,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -430,9 +428,9 @@ impl TryFromProto<grpc::AttributeToUpdate> for AttributeToUpdate {
     }
 }
 
-impl TryFromProto<grpc::NullableAttributeValue> for Option<AttributeValue> {
+impl TryFromProto<pb::NullableAttributeValue> for Option<AttributeValue> {
     fn try_from_proto_with(
-        value: grpc::NullableAttributeValue,
+        value: pb::NullableAttributeValue,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         value
@@ -445,9 +443,9 @@ impl TryFromProto<grpc::NullableAttributeValue> for Option<AttributeValue> {
     }
 }
 
-impl TryFromProto<grpc::AttributeValue> for AttributeValue {
+impl TryFromProto<pb::AttributeValue> for AttributeValue {
     fn try_from_proto_with(
-        value: grpc::AttributeValue,
+        value: pb::AttributeValue,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
@@ -462,12 +460,12 @@ impl TryFromProto<grpc::AttributeValue> for AttributeValue {
     }
 }
 
-impl TryFromProto<grpc::attribute_value::AttributeValue> for AttributeValue {
+impl TryFromProto<pb::attribute_value::AttributeValue> for AttributeValue {
     fn try_from_proto_with(
-        value: grpc::attribute_value::AttributeValue,
+        value: pb::attribute_value::AttributeValue,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
-        use grpc::attribute_value;
+        use pb::attribute_value;
 
         Ok(match value {
             attribute_value::AttributeValue::StringValue(string_value) => {
