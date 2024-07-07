@@ -3,6 +3,7 @@ use attribute_grpc_api::grpc::attribute_store_client::AttributeStoreClient;
 use attribute_grpc_api::grpc::{PingRequest, QueryEntitiesRequest};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::BufReader;
 use thiserror::Error;
@@ -42,15 +43,40 @@ enum Commands {
 }
 
 #[derive(Error, Debug)]
-pub enum StatusError {
-    #[error("status error: details: `{1:?}")]
-    StatusError(#[source] Status, Vec<ErrorDetail>),
+pub struct StatusError {
+    status: Status,
+    error_details: Vec<ErrorDetail>,
 }
 
 impl From<Status> for StatusError {
+    /// Convert a grpc Status into something that we can display a better error for
     fn from(value: Status) -> Self {
         let error_details = value.get_error_details_vec();
-        StatusError::StatusError(value, error_details)
+        StatusError {
+            status: value,
+            error_details,
+        }
+    }
+}
+
+impl Display for StatusError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "status: {:?}, message: {:?}, metadata: {:?}",
+            self.status.code(),
+            self.status.message(),
+            self.status.metadata(),
+        )?;
+
+        if !self.error_details.is_empty() {
+            write!(f, "\nDetails:")?;
+            for error_detail in self.error_details.iter() {
+                write!(f, "\n * {:?}", error_detail)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
