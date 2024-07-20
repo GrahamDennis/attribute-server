@@ -1,8 +1,8 @@
 use crate::convert::{ConversionError, IntoProto, TryFromProto};
 use attribute_grpc_api::pb;
 use attribute_store::store::{
-    AttributeStoreError, CreateAttributeTypeRequest, EntityLocator, EntityQuery,
-    UpdateEntityRequest, WatchEntitiesRequest,
+    AttributeStoreError, AttributeStoreErrorKind, CreateAttributeTypeRequest, EntityLocator,
+    EntityQuery, UpdateEntityRequest, WatchEntitiesRequest,
 };
 use std::pin::Pin;
 use thiserror::Error;
@@ -35,11 +35,11 @@ impl From<AttributeServerError> for Status {
     fn from(value: AttributeServerError) -> Self {
         match value {
             AttributeServerError::AttributeStoreError(attribute_store_error) => {
-                match attribute_store_error {
-                    AttributeStoreError::EntityNotFound(entity_locator) => Status::not_found(
+                match attribute_store_error.kind {
+                    AttributeStoreErrorKind::EntityNotFound(entity_locator) => Status::not_found(
                         format!("no entity found matching locator {:?}", entity_locator),
                     ),
-                    AttributeStoreError::ValidationError(report) => Status::with_error_details(
+                    AttributeStoreErrorKind::ValidationError(report) => Status::with_error_details(
                         Code::InvalidArgument,
                         "validation error",
                         ErrorDetails::with_bad_request(

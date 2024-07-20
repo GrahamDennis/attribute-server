@@ -1,7 +1,8 @@
 use crate::store::{
-    AttributeStore, AttributeStoreError, AttributeToUpdate, AttributeTypes, AttributeValue,
-    BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId, EntityLocator, EntityQuery,
-    EntityRow, Symbol, UpdateEntityRequest, ValueType, WatchEntitiesEvent,
+    AttributeStore, AttributeStoreError, AttributeStoreErrorKind, AttributeToUpdate,
+    AttributeTypes, AttributeValue, BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId,
+    EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
+    WatchEntitiesEvent,
 };
 use garde::Unvalidated;
 use std::collections::HashMap;
@@ -74,7 +75,7 @@ impl InMemoryAttributeStore {
         &mut self,
         attributes: HashMap<Symbol, AttributeValue>,
     ) -> Result<Entity, AttributeStoreError> {
-        use AttributeStoreError::*;
+        use AttributeStoreErrorKind::*;
 
         let database_id = self.entities.len();
         let entity = Entity {
@@ -156,7 +157,7 @@ impl AttributeStore for InMemoryAttributeStore {
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     fn get_entity(&self, entity_locator: &EntityLocator) -> Result<Entity, AttributeStoreError> {
-        use AttributeStoreError::*;
+        use AttributeStoreErrorKind::*;
 
         log::trace!("Received get_entity request");
 
@@ -210,6 +211,7 @@ impl AttributeStore for InMemoryAttributeStore {
         &mut self,
         update_entity_request: &UpdateEntityRequest,
     ) -> Result<Entity, AttributeStoreError> {
+        use AttributeStoreErrorKind::*;
         log::trace!("Received query_entities request");
 
         let symbol_name_symbol: Symbol = BootstrapSymbol::SymbolName.into();
@@ -227,7 +229,7 @@ impl AttributeStore for InMemoryAttributeStore {
             match entity_locator {
                 EntityLocator::EntityId(entity_id) => {
                     let Some(entity) = self.entities.get_mut(usize::try_from(*entity_id)?) else {
-                        return Err(AttributeStoreError::EntityNotFound(entity_locator.clone()));
+                        return Err(EntityNotFound(entity_locator.clone()))?;
                     };
                     Some(entity)
                 }
@@ -245,10 +247,10 @@ impl AttributeStore for InMemoryAttributeStore {
                             value: Some(expected_attribute_value),
                         };
                         if !attributes_to_update.contains(&expected_symbol_attribute) {
-                            return Err(AttributeStoreError::UpdateNotIdempotent {
+                            return Err(UpdateNotIdempotent {
                                 missing_attribute_to_update: expected_symbol_attribute,
                                 entity_locator: entity_locator.clone(),
-                            });
+                            })?;
                         }
                     }
                     entity

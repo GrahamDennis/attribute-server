@@ -5,13 +5,15 @@ use std::borrow::Cow;
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::Into;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::sync::OnceLock;
 use thiserror::Error;
 use tokio::sync::broadcast::Receiver;
 
 #[derive(Error, Debug)]
-pub enum AttributeStoreError {
+pub enum AttributeStoreErrorKind {
     #[error("name `{0}` is not a valid symbol name")]
     InvalidSymbolName(Cow<'static, str>),
     #[error("entity not found (locator: `{0:?}`)")]
@@ -37,6 +39,31 @@ pub enum AttributeStoreError {
     },
 }
 
+#[derive(Debug)]
+pub struct AttributeStoreError {
+    pub kind: AttributeStoreErrorKind,
+    // put SpanTrace and similar here
+}
+
+impl Display for AttributeStoreError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Is this correct?
+        std::fmt::Display::fmt(&self.kind, f)
+    }
+}
+
+impl std::error::Error for AttributeStoreError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.kind.source()
+    }
+}
+
+impl<T: Into<AttributeStoreErrorKind>> From<T> for AttributeStoreError {
+    fn from(value: T) -> Self {
+        AttributeStoreError { kind: value.into() }
+    }
+}
+
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
 pub struct EntityId(pub i64);
 
@@ -50,9 +77,11 @@ impl TryFrom<EntityId> for usize {
     type Error = AttributeStoreError;
 
     fn try_from(value: EntityId) -> Result<Self, Self::Error> {
+        use AttributeStoreErrorKind::*;
         let EntityId(database_id) = value;
-        usize::try_from(database_id)
-            .map_err(|_| AttributeStoreError::EntityNotFound(EntityLocator::EntityId(value)))
+        let entity_id = usize::try_from(database_id)
+            .map_err(|_| EntityNotFound(EntityLocator::EntityId(value)))?;
+        Ok(entity_id)
     }
 }
 
@@ -63,13 +92,14 @@ impl TryFrom<Cow<'static, str>> for Symbol {
     type Error = AttributeStoreError;
 
     fn try_from(string: Cow<'static, str>) -> Result<Self, Self::Error> {
+        use AttributeStoreErrorKind::*;
         static SYMBOL_REGEX_CELL: OnceLock<Regex> = OnceLock::new();
         let symbol_regex = SYMBOL_REGEX_CELL.get_or_init(|| {
             Regex::new(r#"^[[:print:]--[\\"]]{1,60}$"#).expect("Failed to compile symbol regex")
         });
 
         if !symbol_regex.is_match(&string) {
-            Err(AttributeStoreError::InvalidSymbolName(string))
+            Err(InvalidSymbolName(string))?
         } else {
             Ok(Symbol(string))
         }
@@ -443,13 +473,13 @@ impl TryFrom<EntityId> for ValueType {
     type Error = AttributeStoreError;
 
     fn try_from(value: EntityId) -> Result<Self, Self::Error> {
-        use AttributeStoreError::*;
+        use AttributeStoreErrorKind::*;
         use ValueType::*;
         match value {
             EntityId(3) => Ok(Text),
             EntityId(4) => Ok(EntityReference),
             EntityId(5) => Ok(Bytes),
-            other_entity_id => Err(InvalidValueType(other_entity_id)),
+            other_entity_id => Err(InvalidValueType(other_entity_id))?,
         }
     }
 }
