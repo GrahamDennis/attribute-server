@@ -223,22 +223,37 @@ impl AttributeStore for InMemoryAttributeStore {
         } = validated_update_entity_request.into_inner();
 
         // Update entity
-        let existing_entity = match entity_locator {
-            EntityLocator::EntityId(entity_id) => {
-                self.entities.get_mut(usize::try_from(*entity_id)?)
-            }
-            EntityLocator::Symbol(symbol) => {
-                let expected_attribute_value = AttributeValue::String(symbol.clone().into());
-                self.entities.iter_mut().find(|entity| {
+        let existing_entity =
+            match entity_locator {
+                EntityLocator::EntityId(entity_id) => {
+                    let Some(entity) = self.entities.get_mut(usize::try_from(*entity_id)?) else {
+                        return Err(AttributeStoreError::EntityNotFound(entity_locator.clone()));
+                    };
+                    Some(entity)
+                }
+                EntityLocator::Symbol(symbol) => {
+                    let expected_attribute_value = AttributeValue::String(symbol.clone().into());
+                    let entity =
+                        self.entities.iter_mut().find(|entity| {
+                            entity.attributes.get(&symbol_name_symbol).is_some_and(
+                                |attribute_value| attribute_value.eq(&expected_attribute_value),
+                            )
+                        });
+                    if entity.is_none() {
+                        let expected_symbol_attribute = AttributeToUpdate {
+                            symbol: symbol_name_symbol,
+                            value: Some(expected_attribute_value),
+                        };
+                        if !attributes_to_update.contains(&expected_symbol_attribute) {
+                            return Err(AttributeStoreError::UpdateNotIdempotent {
+                                missing_attribute_to_update: expected_symbol_attribute,
+                                entity_locator: entity_locator.clone(),
+                            });
+                        }
+                    }
                     entity
-                        .attributes
-                        .get(&symbol_name_symbol)
-                        .is_some_and(|attribute_value| {
-                            attribute_value.eq(&expected_attribute_value)
-                        })
-                })
-            }
-        };
+                }
+            };
 
         match existing_entity {
             None =>

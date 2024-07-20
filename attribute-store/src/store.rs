@@ -1,4 +1,3 @@
-use crate::store::AttributeStoreError::InvalidValueType;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use regex::Regex;
@@ -23,6 +22,14 @@ pub enum AttributeStoreError {
     InvalidValueType(EntityId),
     #[error("validation error")]
     ValidationError(#[from] garde::Report),
+    #[error(
+        "update not idempotent; missing attribute to update: `{missing_attribute_to_update:?}` \
+    given locator `{entity_locator:?}`"
+    )]
+    UpdateNotIdempotent {
+        missing_attribute_to_update: AttributeToUpdate,
+        entity_locator: EntityLocator,
+    },
     #[error("internal error: `{message}`")]
     Other {
         message: String,
@@ -436,6 +443,7 @@ impl TryFrom<EntityId> for ValueType {
     type Error = AttributeStoreError;
 
     fn try_from(value: EntityId) -> Result<Self, Self::Error> {
+        use AttributeStoreError::*;
         use ValueType::*;
         match value {
             EntityId(3) => Ok(Text),
