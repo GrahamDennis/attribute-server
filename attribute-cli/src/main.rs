@@ -10,6 +10,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use prost_reflect::{DynamicMessage, ReflectMessage, SerializeOptions};
 use serde::Deserializer;
+use serde_path_to_error::Track;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::future::Future;
@@ -113,7 +114,10 @@ fn parse_from_deserializer<'de, T: ReflectMessage + Default, D: Deserializer<'de
 where
     <D as Deserializer<'de>>::Error: Send + Sync + 'static,
 {
-    let message = DynamicMessage::deserialize(T::default().descriptor(), deserializer)?;
+    let mut track = Track::new();
+    let wrapped_deserializer = serde_path_to_error::Deserializer::new(deserializer, &mut track);
+    let message = DynamicMessage::deserialize(T::default().descriptor(), wrapped_deserializer)
+        .map_err(|err| serde_path_to_error::Error::new(track.path(), err))?;
 
     Ok(message.transcode_to()?)
 }
@@ -136,14 +140,18 @@ fn parse_from_json_argument<T: ReflectMessage + Default>(json_argument: &str) ->
 }
 
 fn to_json<T: ReflectMessage>(message: &T) -> anyhow::Result<String> {
-    let mut serializer = serde_json::Serializer::new(vec![]);
+    let mut buffer = vec![];
+    let mut serializer = serde_json::Serializer::new(&mut buffer);
+    let mut track = Track::new();
+    let wrapped_serializer = serde_path_to_error::Serializer::new(&mut serializer, &mut track);
     let options = SerializeOptions::new().skip_default_fields(false);
 
     message
         .transcode_to_dynamic()
-        .serialize_with_options(&mut serializer, &options)?;
+        .serialize_with_options(wrapped_serializer, &options)
+        .map_err(|err| serde_path_to_error::Error::new(track.path(), err))?;
 
-    Ok(String::from_utf8(serializer.into_inner())?)
+    Ok(String::from_utf8(buffer)?)
 }
 
 async fn send_request<T: ReflectMessage + Default, R: ReflectMessage, Fut>(

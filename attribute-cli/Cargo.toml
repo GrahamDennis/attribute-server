@@ -17,6 +17,7 @@ thiserror = "1.0.61"
 tonic-types = "0.12.1"
 prost = "0.13.1"
 prost-reflect = { version = "0.14.0", features = ["serde", "derive"] }
+serde_path_to_error = "0.1.16"
 
 [build-dependencies]
 prost-build = "0.13.1"
