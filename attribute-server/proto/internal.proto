@@ -5,3 +5,7 @@ package me.grahamdennis.attribute.internal;
 message InternalEntityId {
   sint64 database_id = 1;
 }
+
+message InternalEntityVersion {
+  sint64 database_id = 1;
+}

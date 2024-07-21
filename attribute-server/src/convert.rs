@@ -3,7 +3,7 @@ use crate::pb;
 use anyhow::format_err;
 use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
-    Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow,
+    Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, EntityVersion,
     HasAttributeTypesNode, MatchAllQueryNode, MatchNoneQueryNode, OrQueryNode, Symbol,
     UpdateEntityRequest, ValueType, WatchEntitiesEvent, WatchEntitiesRequest,
 };
@@ -138,6 +138,7 @@ impl IntoProto<pb::Entity> for Entity {
     fn into_proto(self) -> pb::Entity {
         pb::Entity {
             entity_id: self.entity_id.into_proto(),
+            entity_version: self.entity_version.into_proto(),
             attributes: self.attributes.into_proto(),
         }
     }
@@ -148,6 +149,14 @@ impl IntoProto<String> for EntityId {
         let EntityId(database_id) = self;
         let internal_entity_id = internal_pb::InternalEntityId { database_id };
         URL_SAFE.encode(internal_entity_id.encode_to_vec())
+    }
+}
+
+impl IntoProto<String> for EntityVersion {
+    fn into_proto(self) -> String {
+        let EntityVersion(database_id) = self;
+        let internal_entity_version = internal_pb::InternalEntityVersion { database_id };
+        URL_SAFE.encode(internal_entity_version.encode_to_vec())
     }
 }
 

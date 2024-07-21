@@ -1,7 +1,5 @@
 {
   "query": {
-    "hasAttributeTypes": {
-      "attributeTypes": ["foo"]
-    }
+    "matchAll": {}
   }
 }

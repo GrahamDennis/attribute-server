@@ -1,7 +1,7 @@
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeStoreErrorKind, AttributeToUpdate,
     AttributeTypes, AttributeValue, BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId,
-    EntityLocator, EntityQuery, EntityRow, Symbol, UpdateEntityRequest, ValueType,
+    EntityLocator, EntityQuery, EntityRow, EntityVersion, Symbol, UpdateEntityRequest, ValueType,
     WatchEntitiesEvent,
 };
 use garde::Unvalidated;
@@ -15,6 +15,7 @@ pub struct InMemoryAttributeStore {
     attribute_types: AttributeTypes,
     entities: Vec<Entity>,
     watch_entities_channel: Sender<WatchEntitiesEvent>,
+    entity_version_sequence: std::ops::RangeFrom<i64>,
 }
 
 impl InMemoryAttributeStore {
@@ -57,7 +58,12 @@ impl InMemoryAttributeStore {
             attribute_types,
             entities,
             watch_entities_channel: tx,
+            entity_version_sequence: 1..,
         }
+    }
+
+    fn entity_version(&mut self) -> EntityVersion {
+        EntityVersion(self.entity_version_sequence.next().unwrap())
     }
 
     fn bootstrap_entities() -> Vec<Entity> {
@@ -85,6 +91,7 @@ impl InMemoryAttributeStore {
                 ),
                 source: err.into(),
             })?),
+            entity_version: self.entity_version(),
             attributes,
         };
 
@@ -102,6 +109,7 @@ impl InMemoryAttributeStore {
         entity: &mut Entity,
         attributes_to_update: &[AttributeToUpdate],
         watch_entities_channel: &Sender<WatchEntitiesEvent>,
+        entity_version_sequence: &mut std::ops::RangeFrom<i64>,
     ) -> Result<Entity, AttributeStoreError> {
         let before = entity.clone();
         for attribute_to_update in attributes_to_update {
@@ -112,16 +120,15 @@ impl InMemoryAttributeStore {
                     .insert(attribute_to_update.symbol.clone(), attribute_value.clone()),
             };
         }
-        let after = entity.clone();
-
-        if before != after {
+        if before != *entity {
+            entity.entity_version = EntityVersion(entity_version_sequence.next().unwrap());
             let _ = watch_entities_channel.send(WatchEntitiesEvent {
                 before: Some(before),
-                after: Some(after.clone()),
+                after: Some(entity.clone()),
             });
         }
 
-        Ok(after)
+        Ok(entity.clone())
     }
 }
 
@@ -280,6 +287,7 @@ impl AttributeStore for InMemoryAttributeStore {
                 entity,
                 attributes_to_update,
                 &self.watch_entities_channel,
+                &mut self.entity_version_sequence,
             ),
         }
     }

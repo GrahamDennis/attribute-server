@@ -64,7 +64,8 @@ message EntityLocator {
 
 message Entity {
   string entity_id = 1;
-  map<string, AttributeValue> attributes = 2;
+  string entity_version = 2;
+  map<string, AttributeValue> attributes = 3;
 }
 
 message EntityRow {
@@ -114,6 +115,7 @@ message UpdateEntityRequest {
   EntityLocator entity_locator = 1;
   repeated AttributeToUpdate attributes_to_update = 2;
   // FIXME: Could this be made conditional like a compare-and-swap?
+  // Does this mean we need entity versions?
 }
 
 message AttributeToUpdate {

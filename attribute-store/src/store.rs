@@ -67,6 +67,9 @@ impl<T: Into<AttributeStoreErrorKind>> From<T> for AttributeStoreError {
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
 pub struct EntityId(pub i64);
 
+#[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
+pub struct EntityVersion(pub i64);
+
 impl From<i64> for EntityId {
     fn from(value: i64) -> Self {
         EntityId(value)
@@ -157,6 +160,7 @@ pub enum EntityLocator {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Entity {
     pub entity_id: EntityId,
+    pub entity_version: EntityVersion,
     // Should the key here be InternalEntityId?
     pub attributes: HashMap<Symbol, AttributeValue>,
 }
@@ -526,6 +530,7 @@ impl From<BootstrapSymbol> for Entity {
 
         Entity {
             entity_id: value.into(),
+            entity_version: EntityVersion(0),
             attributes,
         }
     }
