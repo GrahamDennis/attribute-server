@@ -5,21 +5,21 @@ edition = "2021"
 
 [dependencies]
 attribute-grpc-api = { version = "0.0.0", path = "../attribute-grpc-api" }
-tonic = "0.11.0"
+tonic = "0.12.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
-tower = "0.4.13"
+tower = { version = "0.4.13" , features = ["timeout"] }
 anyhow = "1.0.86"
 attribute-store = { version = "0.0.0", path = "../attribute-store" }
 thiserror = "1.0.61"
 base64 = "0.22.1"
-prost = "0.12.6"
-tonic-types = "0.11.0"
+prost = "0.13.1"
+tonic-types = "0.12.1"
 log = "0.4.22"
 garde = { version = "0.20.0", features = ["derive", "regex"] }
 parking_lot = "0.12.3"
 tokio-stream = { version = "0.1.15", features = ["sync"] }
 
 [build-dependencies]
-tonic-build = "0.11.0"
+tonic-build = "0.12.1"

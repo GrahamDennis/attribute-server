@@ -7,7 +7,6 @@ use attribute_store::store::{
     WatchEntitiesRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
-use garde::Path;
 use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -491,7 +490,7 @@ impl TryFromProto<pb::attribute_value::AttributeValue> for AttributeValue {
 impl TryFromProto<pb::WatchEntitiesRequest> for WatchEntitiesRequest {
     fn try_from_proto_with(
         _value: pb::WatchEntitiesRequest,
-        _parent: &mut dyn FnMut() -> Path,
+        _parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         Ok(WatchEntitiesRequest {})
     }

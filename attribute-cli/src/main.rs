@@ -1,8 +1,12 @@
 use anyhow::format_err;
 use attribute_grpc_api::pb::attribute_store_client::AttributeStoreClient;
-use attribute_grpc_api::pb::{PingRequest, QueryEntitiesRequest, WatchEntitiesRequest};
+use attribute_grpc_api::pb::{
+    CreateAttributeTypeRequest, PingRequest, QueryEntitiesRequest, WatchEntitiesRequest,
+};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use prost_reflect::{DynamicMessage, ReflectMessage};
+use serde::Deserializer;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::BufReader;
@@ -29,6 +33,11 @@ struct Cli {
 enum Commands {
     /// Send ping request
     Ping,
+    /// Create attribute
+    CreateAttributeType {
+        #[clap(short, long)]
+        json: String,
+    },
     /// Query for entities
     QueryEntities {
         #[clap(short, long)]
@@ -88,13 +97,29 @@ fn print_completions<G: clap_complete::Generator>(gen: G, cmd: &mut clap::Comman
     clap_complete::generate(gen, cmd, cmd.get_name().to_string(), &mut std::io::stdout());
 }
 
-fn parse_from_json_argument<T: serde::de::DeserializeOwned>(
-    json_argument: &str,
-) -> anyhow::Result<T> {
+fn parse_from_deserializer<'de, T: ReflectMessage + Default, D: Deserializer<'de>>(
+    deserializer: D,
+) -> anyhow::Result<T>
+where
+    <D as Deserializer<'de>>::Error: Send + Sync + 'static,
+{
+    let message = DynamicMessage::deserialize(T::default().descriptor(), deserializer)?;
+
+    Ok(message.transcode_to()?)
+}
+
+fn parse_from_json_argument<T: ReflectMessage + Default>(json_argument: &str) -> anyhow::Result<T> {
     let parsed = if let Some(json_file) = json_argument.strip_prefix('@') {
-        serde_json::from_reader(BufReader::new(File::open(json_file)?))?
+        let mut deserializer =
+            serde_json::de::Deserializer::from_reader(BufReader::new(File::open(json_file)?));
+        let result = parse_from_deserializer(&mut deserializer)?;
+        deserializer.end()?;
+        result
     } else {
-        serde_json::from_str(json_argument)?
+        let mut deserializer = serde_json::de::Deserializer::from_str(json_argument);
+        let result = parse_from_deserializer(&mut deserializer)?;
+        deserializer.end()?;
+        result
     };
 
     Ok(parsed)
@@ -122,12 +147,25 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
-        Commands::QueryEntities { json } => {
-            let query_entities_request: QueryEntitiesRequest = parse_from_json_argument(json)?;
+        Commands::CreateAttributeType { json } => {
+            let request: CreateAttributeTypeRequest = parse_from_json_argument(json)?;
 
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
-                .query_entities(query_entities_request)
+                .create_attribute_type(request)
+                .await
+                .map_err(StatusError::from)?;
+            let response = response.into_inner();
+            println!("{}", serde_json::to_string(&response)?);
+
+            Ok(())
+        }
+        Commands::QueryEntities { json } => {
+            let request: QueryEntitiesRequest = parse_from_json_argument(json)?;
+
+            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
+            let response = attribute_store_client
+                .query_entities(request)
                 .await
                 .map_err(StatusError::from)?;
             let query_entities_response = response.into_inner();
@@ -136,11 +174,11 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::WatchEntities { json } => {
-            let watch_entities_request: WatchEntitiesRequest = parse_from_json_argument(json)?;
+            let request: WatchEntitiesRequest = parse_from_json_argument(json)?;
 
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
-                .watch_entities(watch_entities_request)
+                .watch_entities(request)
                 .await
                 .map_err(StatusError::from)?;
             let mut stream = response.into_inner();
