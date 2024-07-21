@@ -7,7 +7,7 @@ use crate::pb::{
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use prost_reflect::{DynamicMessage, ReflectMessage};
+use prost_reflect::{DynamicMessage, ReflectMessage, SerializeOptions};
 use serde::Deserializer;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
@@ -128,6 +128,17 @@ fn parse_from_json_argument<T: ReflectMessage + Default>(json_argument: &str) ->
     Ok(parsed)
 }
 
+fn to_json<T: ReflectMessage>(message: &T) -> anyhow::Result<String> {
+    let mut serializer = serde_json::Serializer::new(vec![]);
+    let options = SerializeOptions::new().skip_default_fields(false);
+
+    message
+        .transcode_to_dynamic()
+        .serialize_with_options(&mut serializer, &options)?;
+
+    Ok(String::from_utf8(serializer.into_inner())?)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -159,7 +170,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .map_err(StatusError::from)?;
             let response = response.into_inner();
-            println!("{}", serde_json::to_string(&response)?);
+            println!("{}", to_json(&response)?);
 
             Ok(())
         }
@@ -172,7 +183,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .map_err(StatusError::from)?;
             let query_entities_response = response.into_inner();
-            println!("{}", serde_json::to_string(&query_entities_response)?);
+            println!("{}", to_json(&query_entities_response)?);
 
             Ok(())
         }
@@ -186,7 +197,7 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(StatusError::from)?;
             let mut stream = response.into_inner();
             while let Some(event) = stream.message().await? {
-                println!("{}", serde_json::to_string(&event)?);
+                println!("{}", to_json(&event)?);
             }
 
             Ok(())

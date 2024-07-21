@@ -1,9 +1,7 @@
 {
-  "attribute_types": ["@id", "@symbolName", "@valueType"],
+  "attributeTypes": ["@id", "@symbolName", "@valueType"],
   "root": {
-    "query": {
-    "match_all": {}
-    }
+    "matchAll": {}
   }
 }
 

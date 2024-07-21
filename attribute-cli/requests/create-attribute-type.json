@@ -1,6 +1,6 @@
 {
-  "attribute_type": {
+  "attributeType": {
     "symbol": "foo",
-    "value_type": "TEXT"
+    "valueType": "TEXT"
   }
 }

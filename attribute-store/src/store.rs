@@ -208,35 +208,16 @@ pub enum EntityQueryNode {
     Or(OrQueryNode),
 }
 
-fn match_all(_: &&Entity) -> bool {
-    true
-}
-fn match_none(_: &&Entity) -> bool {
-    false
-}
-
 impl EntityQueryNode {
-    pub fn to_predicate(&self) -> Box<dyn Fn(&&Entity) -> bool> {
+    pub fn matches(&self, entity: &Entity) -> bool {
         match self {
-            EntityQueryNode::MatchAll(_) => Box::new(match_all),
-            EntityQueryNode::MatchNone(_) => Box::new(match_none),
+            EntityQueryNode::MatchAll(_) => true,
+            EntityQueryNode::MatchNone(_) => false,
             EntityQueryNode::And(AndQueryNode { clauses }) => {
-                let predicates: Vec<_> = clauses
-                    .into_iter()
-                    .map(|clause| clause.to_predicate())
-                    .collect();
-                let predicate =
-                    move |entity: &&Entity| -> bool { predicates.iter().all(|p| p(entity)) };
-                Box::new(predicate)
+                clauses.iter().all(|item| item.matches(entity))
             }
             EntityQueryNode::Or(OrQueryNode { clauses }) => {
-                let predicates: Vec<_> = clauses
-                    .into_iter()
-                    .map(|clause| clause.to_predicate())
-                    .collect();
-                let predicate =
-                    move |entity: &&Entity| -> bool { predicates.iter().any(|p| p(entity)) };
-                Box::new(predicate)
+                clauses.iter().any(|item| item.matches(entity))
             }
         }
     }
@@ -341,7 +322,9 @@ pub struct CreateAttributeTypeRequest {
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub struct WatchEntitiesRequest {}
+pub struct WatchEntitiesRequest {
+    pub query: EntityQueryNode,
+}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct WatchEntitiesEvent {

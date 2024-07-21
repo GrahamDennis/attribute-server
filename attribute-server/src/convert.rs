@@ -486,10 +486,17 @@ impl TryFromProto<pb::attribute_value::AttributeValue> for AttributeValue {
 
 impl TryFromProto<pb::WatchEntitiesRequest> for WatchEntitiesRequest {
     fn try_from_proto_with(
-        _value: pb::WatchEntitiesRequest,
-        _parent: &mut dyn FnMut() -> garde::Path,
+        value: pb::WatchEntitiesRequest,
+        mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
-        Ok(WatchEntitiesRequest {})
+        use FieldError::*;
+
+        let mut path = garde::util::nested_path!(parent, "query");
+
+        let query_proto = value.query.ok_or_else(|| FieldMissing.at_path(path()))?;
+        Ok(WatchEntitiesRequest {
+            query: EntityQueryNode::try_from_proto_with(query_proto, &mut path)?,
+        })
     }
 }
 

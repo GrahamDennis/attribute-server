@@ -1,8 +1,9 @@
 use crate::convert::{ConversionError, IntoProto, TryFromProto};
 use crate::pb;
 use attribute_store::store::{
-    AttributeStoreError, AttributeStoreErrorKind, CreateAttributeTypeRequest, EntityLocator,
-    EntityQuery, UpdateEntityRequest, WatchEntitiesRequest,
+    AttributeStoreError, AttributeStoreErrorKind, CreateAttributeTypeRequest, Entity,
+    EntityLocator, EntityQuery, EntityQueryNode, UpdateEntityRequest, WatchEntitiesEvent,
+    WatchEntitiesRequest,
 };
 use std::pin::Pin;
 use thiserror::Error;
@@ -207,14 +208,32 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
         log::info!("Received watch entities request");
 
         let watch_entities_request_proto = request.into_inner();
-        let _ = WatchEntitiesRequest::try_from_proto(watch_entities_request_proto)
-            .map_err(ConversionError)?;
+        let watch_entities_request =
+            WatchEntitiesRequest::try_from_proto(watch_entities_request_proto)
+                .map_err(ConversionError)?;
+        let entity_query = watch_entities_request.query;
 
         let receiver = self.store.watch_entities_receiver();
 
-        let entities_stream = BroadcastStream::new(receiver).filter_map(|v| v.ok());
+        let entities_stream = BroadcastStream::new(receiver)
+            .filter_map(|v| v.ok())
+            .filter_map(move |event| filter_event(event, &entity_query));
         let response_stream = entities_stream.map(|event| Ok(event.into_proto()));
 
         Ok(Response::new(Box::pin(response_stream)))
     }
+}
+
+fn filter_event(
+    watch_entities_event: WatchEntitiesEvent,
+    entity_query_node: &EntityQueryNode,
+) -> Option<WatchEntitiesEvent> {
+    let WatchEntitiesEvent { before, after } = watch_entities_event;
+
+    let matches_query = |entity: &Entity| -> bool { entity_query_node.matches(entity) };
+
+    Some(WatchEntitiesEvent {
+        before: before.filter(matches_query),
+        after: after.filter(matches_query),
+    })
 }

@@ -199,7 +199,7 @@ impl AttributeStore for InMemoryAttributeStore {
         let entity_rows = self
             .entities
             .iter()
-            .filter(root.to_predicate())
+            .filter(|entity| root.matches(entity))
             .map(|entity| entity.to_entity_row(attribute_types))
             .collect();
 
