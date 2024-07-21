@@ -543,14 +543,20 @@ mod tests {
 
     #[test]
     fn invalid_symbols() {
-        use AttributeStoreError::InvalidSymbolName;
+        use AttributeStoreErrorKind::InvalidSymbolName;
 
-        assert_matches!(Symbol::try_from(r"ab\c"), Err(InvalidSymbolName(_)));
-        assert_matches!(Symbol::try_from(r#"ab"c"#), Err(InvalidSymbolName(_)));
-        assert_matches!(Symbol::try_from(""), Err(InvalidSymbolName(_)));
         assert_matches!(
-            Symbol::try_from("0123456789".repeat(7)),
-            Err(InvalidSymbolName(_))
+            Symbol::try_from(r"ab\c").unwrap_err().kind,
+            InvalidSymbolName(_)
+        );
+        assert_matches!(
+            Symbol::try_from(r#"ab"c"#).unwrap_err().kind,
+            InvalidSymbolName(_)
+        );
+        assert_matches!(Symbol::try_from("").unwrap_err().kind, InvalidSymbolName(_));
+        assert_matches!(
+            Symbol::try_from("0123456789".repeat(7)).unwrap_err().kind,
+            InvalidSymbolName(_)
         );
     }
 

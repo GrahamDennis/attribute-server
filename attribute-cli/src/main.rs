@@ -43,6 +43,7 @@ enum Commands {
         #[clap(short, long)]
         json: String,
     },
+    /// Watch for changes to entities
     WatchEntities {
         #[clap(short, long)]
         json: String,

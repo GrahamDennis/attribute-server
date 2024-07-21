@@ -5,8 +5,8 @@ use std::path::PathBuf;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::new();
 
-    let protos = &["proto/attribute.proto"];
-    let includes = &["proto/"];
+    let protos = &["../proto/attribute.proto"];
+    let includes = &["../proto/"];
 
     prost_reflect_build::Builder::new()
         .file_descriptor_set_bytes("crate::pb::FILE_DESCRIPTOR_SET")
@@ -21,6 +21,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]\
              #[serde(rename_all = \"snake_case\", deny_unknown_fields)]",
         )
-        .compile_with_config(config, &["proto/attribute.proto"], &["proto/"])?;
+        .compile_with_config(config, protos, includes)?;
     Ok(())
 }
