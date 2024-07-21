@@ -206,6 +206,7 @@ pub enum EntityQueryNode {
     MatchNone(MatchNoneQueryNode),
     And(AndQueryNode),
     Or(OrQueryNode),
+    HasAttributeTypes(HasAttributeTypesNode),
 }
 
 impl EntityQueryNode {
@@ -218,6 +219,11 @@ impl EntityQueryNode {
             }
             EntityQueryNode::Or(OrQueryNode { clauses }) => {
                 clauses.iter().any(|item| item.matches(entity))
+            }
+            EntityQueryNode::HasAttributeTypes(HasAttributeTypesNode { attribute_types }) => {
+                attribute_types
+                    .iter()
+                    .all(|attribute_type| entity.attributes.contains_key(attribute_type))
             }
         }
     }
@@ -242,6 +248,11 @@ pub struct AndQueryNode {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct OrQueryNode {
     pub clauses: Vec<EntityQueryNode>,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct HasAttributeTypesNode {
+    pub attribute_types: Vec<Symbol>,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]

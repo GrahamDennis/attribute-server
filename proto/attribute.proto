@@ -89,6 +89,7 @@ message EntityQueryNode {
     MatchNoneQueryNode match_none = 2;
     AndQueryNode and_ = 3;
     OrQueryNode or_ = 4;
+    HasAttributeTypesNode has_attribute_types = 5;
 //    MatchEntityIdQueryNode match_entity_id = 5;
 //    MatchSymbolQueryNode match_symbol = 6;
 //    MatchAttributeValueQueryNode match_attribute_value = 7;
@@ -103,6 +104,10 @@ message AndQueryNode {
 
 message OrQueryNode {
   repeated EntityQueryNode clauses = 1;
+}
+
+message HasAttributeTypesNode {
+  repeated string attribute_types = 1;
 }
 
 message UpdateEntityRequest {

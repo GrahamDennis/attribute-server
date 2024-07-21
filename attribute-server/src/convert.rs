@@ -3,9 +3,9 @@ use crate::pb;
 use anyhow::format_err;
 use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
-    Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode,
-    MatchNoneQueryNode, OrQueryNode, Symbol, UpdateEntityRequest, ValueType, WatchEntitiesEvent,
-    WatchEntitiesRequest,
+    Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow,
+    HasAttributeTypesNode, MatchAllQueryNode, MatchNoneQueryNode, OrQueryNode, Symbol,
+    UpdateEntityRequest, ValueType, WatchEntitiesEvent, WatchEntitiesRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
@@ -249,6 +249,13 @@ impl TryFromProto<pb::entity_query_node::Query> for EntityQueryNode {
                 let mut path = garde::util::nested_path!(parent, "or_");
                 EntityQueryNode::Or(OrQueryNode::try_from_proto_with(or_query_node, &mut path)?)
             }
+            Query::HasAttributeTypes(has_attribute_types_node) => {
+                let mut path = garde::util::nested_path!(parent, "has_attribute_types");
+                EntityQueryNode::HasAttributeTypes(HasAttributeTypesNode::try_from_proto_with(
+                    has_attribute_types_node,
+                    &mut path,
+                )?)
+            }
         })
     }
 }
@@ -277,17 +284,32 @@ impl TryFromProto<pb::OrQueryNode> for OrQueryNode {
     }
 }
 
-impl TryFromProto<Vec<pb::EntityQueryNode>> for Vec<EntityQueryNode> {
+impl TryFromProto<pb::HasAttributeTypesNode> for HasAttributeTypesNode {
     fn try_from_proto_with(
-        value: Vec<pb::EntityQueryNode>,
+        value: pb::HasAttributeTypesNode,
+        mut parent: &mut dyn FnMut() -> garde::Path,
+    ) -> ConversionResult<Self> {
+        let mut path = garde::util::nested_path!(parent, "attribute_types");
+        Ok(HasAttributeTypesNode {
+            attribute_types: Vec::try_from_proto_with(value.attribute_types, &mut path)?,
+        })
+    }
+}
+
+impl<A, B> TryFromProto<Vec<A>> for Vec<B>
+where
+    B: TryFromProto<A>,
+{
+    fn try_from_proto_with(
+        value: Vec<A>,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         value
             .into_iter()
             .enumerate()
-            .map(|(idx, entity_query_node)| {
+            .map(|(idx, element)| {
                 let mut path = garde::util::nested_path!(parent, idx);
-                EntityQueryNode::try_from_proto_with(entity_query_node, &mut path)
+                B::try_from_proto_with(element, &mut path)
             })
             .collect()
     }
