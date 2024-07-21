@@ -1,5 +1,9 @@
 {
-  "attributeTypes": ["@id", "@symbolName", "@valueType"],
+  "attributeTypes": [
+    "@id",
+    "@symbolName",
+    "@valueType"
+  ],
   "root": {
     "matchAll": {}
   }

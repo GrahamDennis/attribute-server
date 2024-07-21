@@ -407,8 +407,6 @@ impl TryFromProto<pb::AttributeToUpdate> for AttributeToUpdate {
         value: pb::AttributeToUpdate,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
-        use FieldError::*;
-
         Ok(AttributeToUpdate {
             symbol: {
                 let mut path = garde::util::nested_path!(parent, "attribute_type");
@@ -416,11 +414,11 @@ impl TryFromProto<pb::AttributeToUpdate> for AttributeToUpdate {
             },
             value: {
                 let mut path = garde::util::nested_path!(parent, "attribute_value");
-                let nullable_attribute_value = value
-                    .attribute_value
-                    .ok_or_else(|| FieldMissing.at_path(path()))?;
 
-                Option::try_from_proto_with(nullable_attribute_value, &mut path)?
+                value
+                    .attribute_value
+                    .map(|proto| AttributeValue::try_from_proto_with(proto, &mut path))
+                    .transpose()?
             },
         })
     }

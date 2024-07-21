@@ -217,7 +217,8 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
 
         let entities_stream = BroadcastStream::new(receiver)
             .filter_map(|v| v.ok())
-            .filter_map(move |event| filter_event(event, &entity_query));
+            .filter_map(move |event| filter_event(event, &entity_query))
+            .filter(|WatchEntitiesEvent { before, after }| before != after);
         let response_stream = entities_stream.map(|event| Ok(event.into_proto()));
 
         Ok(Response::new(Box::pin(response_stream)))

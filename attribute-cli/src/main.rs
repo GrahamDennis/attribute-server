@@ -2,7 +2,8 @@ mod pb;
 
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::{
-    CreateAttributeTypeRequest, PingRequest, QueryEntitiesRequest, WatchEntitiesRequest,
+    CreateAttributeTypeRequest, PingRequest, QueryEntitiesRequest, UpdateEntityRequest,
+    WatchEntitiesRequest,
 };
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -11,6 +12,7 @@ use prost_reflect::{DynamicMessage, ReflectMessage, SerializeOptions};
 use serde::Deserializer;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
+use std::future::Future;
 use std::io::BufReader;
 use thiserror::Error;
 use tonic::transport::{Channel, Endpoint};
@@ -42,6 +44,11 @@ enum Commands {
     },
     /// Query for entities
     QueryEntities {
+        #[clap(short, long)]
+        json: String,
+    },
+    /// Update entity
+    UpdateEntity {
         #[clap(short, long)]
         json: String,
     },
@@ -139,6 +146,22 @@ fn to_json<T: ReflectMessage>(message: &T) -> anyhow::Result<String> {
     Ok(String::from_utf8(serializer.into_inner())?)
 }
 
+async fn send_request<T: ReflectMessage + Default, R: ReflectMessage, Fut>(
+    json: &str,
+    call: impl FnOnce(T) -> Fut,
+) -> anyhow::Result<()>
+where
+    Fut: Future<Output = Result<tonic::Response<R>, Status>>,
+{
+    let request: T = parse_from_json_argument(json)?;
+
+    let response = call(request).await.map_err(StatusError::from)?;
+    let response = response.into_inner();
+    println!("{}", to_json(&response)?);
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -162,30 +185,25 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::CreateAttributeType { json } => {
-            let request: CreateAttributeTypeRequest = parse_from_json_argument(json)?;
-
-            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
-            let response = attribute_store_client
-                .create_attribute_type(request)
-                .await
-                .map_err(StatusError::from)?;
-            let response = response.into_inner();
-            println!("{}", to_json(&response)?);
-
-            Ok(())
+            let mut client = create_attribute_store_client(&cli.endpoint).await?;
+            send_request(json, |request: CreateAttributeTypeRequest| {
+                client.create_attribute_type(request)
+            })
+            .await
         }
         Commands::QueryEntities { json } => {
-            let request: QueryEntitiesRequest = parse_from_json_argument(json)?;
-
-            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
-            let response = attribute_store_client
-                .query_entities(request)
-                .await
-                .map_err(StatusError::from)?;
-            let query_entities_response = response.into_inner();
-            println!("{}", to_json(&query_entities_response)?);
-
-            Ok(())
+            let mut client = create_attribute_store_client(&cli.endpoint).await?;
+            send_request(json, |request: QueryEntitiesRequest| {
+                client.query_entities(request)
+            })
+            .await
+        }
+        Commands::UpdateEntity { json } => {
+            let mut client = create_attribute_store_client(&cli.endpoint).await?;
+            send_request(json, |request: UpdateEntityRequest| {
+                client.update_entity(request)
+            })
+            .await
         }
         Commands::WatchEntities { json } => {
             let request: WatchEntitiesRequest = parse_from_json_argument(json)?;

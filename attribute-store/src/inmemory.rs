@@ -114,10 +114,12 @@ impl InMemoryAttributeStore {
         }
         let after = entity.clone();
 
-        let _ = watch_entities_channel.send(WatchEntitiesEvent {
-            before: Some(before),
-            after: Some(after.clone()),
-        });
+        if before != after {
+            let _ = watch_entities_channel.send(WatchEntitiesEvent {
+                before: Some(before),
+                after: Some(after.clone()),
+            });
+        }
 
         Ok(after)
     }

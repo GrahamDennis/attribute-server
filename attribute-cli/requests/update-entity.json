@@ -1,0 +1,19 @@
+{
+  "entityLocator": {
+    "symbol": "bar"
+  },
+  "attributesToUpdate": [
+    {
+      "attributeType": "@symbolName",
+      "attributeValue": {
+        "stringValue": "bar"
+      }
+    },
+    {
+      "attributeType": "foo",
+      "attributeValue": {
+        "stringValue": "baz"
+      }
+    }
+  ]
+}

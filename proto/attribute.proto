@@ -113,7 +113,7 @@ message UpdateEntityRequest {
 
 message AttributeToUpdate {
   string attribute_type = 1;
-  NullableAttributeValue attribute_value = 2;
+  optional AttributeValue attribute_value = 2;
 }
 
 message UpdateEntityResponse {
