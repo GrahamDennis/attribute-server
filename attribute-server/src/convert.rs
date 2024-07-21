@@ -1,5 +1,6 @@
+use crate::internal_pb;
+use crate::pb;
 use anyhow::format_err;
-use attribute_grpc_api::pb;
 use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
     Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, MatchAllQueryNode,
@@ -10,10 +11,6 @@ use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
-
-mod internal_pb {
-    tonic::include_proto!("me.grahamdennis.attribute");
-}
 
 #[derive(Error, Debug)]
 pub enum FieldError {

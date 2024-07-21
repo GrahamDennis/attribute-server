@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package me.grahamdennis.attribute;
+package me.grahamdennis.attribute.internal;
 
 message InternalEntityId {
   sint64 database_id = 1;

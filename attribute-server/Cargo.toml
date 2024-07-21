@@ -4,7 +4,6 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-attribute-grpc-api = { version = "0.0.0", path = "../attribute-grpc-api" }
 tonic = "0.12.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

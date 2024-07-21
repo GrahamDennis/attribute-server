@@ -1,5 +1,5 @@
 use crate::grpc::AttributeServer;
-use attribute_grpc_api::pb::attribute_store_server;
+use crate::pb::attribute_store_server;
 use attribute_store::inmemory::InMemoryAttributeStore;
 use parking_lot::Mutex;
 use std::time::Duration;
@@ -10,6 +10,12 @@ use tracing_subscriber::EnvFilter;
 
 mod convert;
 mod grpc;
+mod pb {
+    tonic::include_proto!("me.grahamdennis.attribute");
+}
+mod internal_pb {
+    tonic::include_proto!("me.grahamdennis.attribute.internal");
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

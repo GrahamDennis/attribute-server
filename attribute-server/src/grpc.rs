@@ -1,5 +1,5 @@
 use crate::convert::{ConversionError, IntoProto, TryFromProto};
-use attribute_grpc_api::pb;
+use crate::pb;
 use attribute_store::store::{
     AttributeStoreError, AttributeStoreErrorKind, CreateAttributeTypeRequest, EntityLocator,
     EntityQuery, UpdateEntityRequest, WatchEntitiesRequest,

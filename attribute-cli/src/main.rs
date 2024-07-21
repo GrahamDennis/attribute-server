@@ -1,8 +1,10 @@
-use anyhow::format_err;
-use attribute_grpc_api::pb::attribute_store_client::AttributeStoreClient;
-use attribute_grpc_api::pb::{
+mod pb;
+
+use crate::pb::attribute_store_client::AttributeStoreClient;
+use crate::pb::{
     CreateAttributeTypeRequest, PingRequest, QueryEntitiesRequest, WatchEntitiesRequest,
 };
+use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use prost_reflect::{DynamicMessage, ReflectMessage};
