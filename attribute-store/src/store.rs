@@ -8,7 +8,7 @@ use std::convert::Into;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use thiserror::Error;
 use tokio::sync::broadcast::Receiver;
 
@@ -91,17 +91,17 @@ impl TryFrom<EntityId> for usize {
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub struct Symbol(Cow<'static, str>);
 
+static SYMBOL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^[[:print:]--[\\"]]{1,60}$"#).expect("Failed to compile symbol regex")
+});
+
 impl TryFrom<Cow<'static, str>> for Symbol {
     type Error = AttributeStoreError;
 
     fn try_from(string: Cow<'static, str>) -> Result<Self, Self::Error> {
         use AttributeStoreErrorKind::*;
-        static SYMBOL_REGEX_CELL: OnceLock<Regex> = OnceLock::new();
-        let symbol_regex = SYMBOL_REGEX_CELL.get_or_init(|| {
-            Regex::new(r#"^[[:print:]--[\\"]]{1,60}$"#).expect("Failed to compile symbol regex")
-        });
 
-        if !symbol_regex.is_match(&string) {
+        if !SYMBOL_REGEX.is_match(&string) {
             Err(InvalidSymbolName(string))?
         } else {
             Ok(Symbol(string))
@@ -165,19 +165,18 @@ pub struct Entity {
     pub attributes: HashMap<Symbol, AttributeValue>,
 }
 
+static ENTITY_ID_SYMBOL: LazyLock<Symbol> = LazyLock::new(|| BootstrapSymbol::EntityId.into());
+
 impl Entity {
     pub fn to_entity_row<'a, I: IntoIterator<Item = &'a Symbol>>(
         &self,
         attribute_types: I,
     ) -> EntityRow {
-        static ENTITY_ID_SYMBOL_CELL: OnceLock<Symbol> = OnceLock::new();
-        let entity_id_symbol =
-            ENTITY_ID_SYMBOL_CELL.get_or_init(|| BootstrapSymbol::EntityId.into());
         EntityRow {
             values: attribute_types
                 .into_iter()
                 .map(|attribute_type| {
-                    if attribute_type == entity_id_symbol {
+                    if attribute_type == ENTITY_ID_SYMBOL.deref() {
                         Some(AttributeValue::EntityId(self.entity_id))
                     } else {
                         self.attributes.get(attribute_type).cloned()
