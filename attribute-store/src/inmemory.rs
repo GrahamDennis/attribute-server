@@ -59,7 +59,7 @@ impl InMemoryAttributeStore {
             attribute_types,
             entities,
             watch_entities_channel: tx,
-            entity_version_sequence: 1..,
+            entity_version_sequence: 0..,
         }
     }
 
@@ -68,7 +68,7 @@ impl InMemoryAttributeStore {
     }
 
     fn next_entity_version(&mut self) -> EntityVersion {
-        EntityVersion(self.entity_version_sequence.next().unwrap())
+        EntityVersion(self.entity_version_sequence.next().unwrap() + 1)
     }
 
     fn bootstrap_entities() -> Vec<Entity> {
