@@ -157,5 +157,5 @@ message RemovedEvent {
 }
 
 message BookmarkEvent {
-
+  string entity_version = 1;
 }

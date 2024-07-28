@@ -153,14 +153,15 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
         let entity_query =
             EntityRowQuery::try_from_proto(query_entity_rows_request).map_err(ConversionError)?;
 
-        let entity_rows = self
+        let entity_row_query_result = self
             .store
             .query_entity_rows(&entity_query)
             .await
             .map_err(AttributeStoreError)?;
 
         let query_entity_rows_response = pb::QueryEntityRowsResponse {
-            rows: entity_rows
+            rows: entity_row_query_result
+                .entity_rows
                 .into_iter()
                 .map(|entity_row| entity_row.into_proto())
                 .collect(),
@@ -221,7 +222,7 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
                 let entity_query = EntityQuery {
                     root: entity_query_node.clone(),
                 };
-                let initial_entities = self
+                let entity_query_result = self
                     .store
                     .query_entities(&entity_query)
                     .await
@@ -230,10 +231,13 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
                 // FIXME: include version ID from initial query in bookmark event
                 let bookmark_event = pb::WatchEntitiesEvent {
                     event: Some(pb::watch_entities_event::Event::Bookmark(
-                        pb::BookmarkEvent {},
+                        pb::BookmarkEvent {
+                            entity_version: entity_query_result.entity_version.into_proto(),
+                        },
                     )),
                 };
-                initial_entities
+                entity_query_result
+                    .entities
                     .into_iter()
                     .map(|entity| WatchEntitiesEvent {
                         before: None,

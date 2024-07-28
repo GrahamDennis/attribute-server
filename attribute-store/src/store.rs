@@ -204,8 +204,20 @@ pub struct EntityRowQuery {
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
+pub struct EntityRowQueryResult {
+    pub entity_rows: Vec<EntityRow>,
+    pub entity_version: EntityVersion,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct EntityQuery {
     pub root: EntityQueryNode,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct EntityQueryResult {
+    pub entities: Vec<Entity>,
+    pub entity_version: EntityVersion,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -367,12 +379,12 @@ pub trait ThreadSafeAttributeStore: Send + Sync + 'static {
     async fn query_entities(
         &self,
         entity_query: &EntityQuery,
-    ) -> Result<Vec<Entity>, AttributeStoreError>;
+    ) -> Result<EntityQueryResult, AttributeStoreError>;
 
     async fn query_entity_rows(
         &self,
         entity_row_query: &EntityRowQuery,
-    ) -> Result<Vec<EntityRow>, AttributeStoreError>;
+    ) -> Result<EntityRowQueryResult, AttributeStoreError>;
 
     async fn update_entity(
         &self,
@@ -393,12 +405,12 @@ pub trait AttributeStore {
     fn query_entities(
         &self,
         entity_query: &EntityQuery,
-    ) -> Result<Vec<Entity>, AttributeStoreError>;
+    ) -> Result<EntityQueryResult, AttributeStoreError>;
 
     fn query_entity_rows(
         &self,
         entity_row_query: &EntityRowQuery,
-    ) -> Result<Vec<EntityRow>, AttributeStoreError>;
+    ) -> Result<EntityRowQueryResult, AttributeStoreError>;
 
     fn update_entity(
         &mut self,
@@ -428,14 +440,14 @@ impl<T: AttributeStore + Send + 'static> ThreadSafeAttributeStore for Mutex<T> {
     async fn query_entities(
         &self,
         entity_query: &EntityQuery,
-    ) -> Result<Vec<Entity>, AttributeStoreError> {
+    ) -> Result<EntityQueryResult, AttributeStoreError> {
         self.lock().query_entities(entity_query)
     }
 
     async fn query_entity_rows(
         &self,
         entity_query: &EntityRowQuery,
-    ) -> Result<Vec<EntityRow>, AttributeStoreError> {
+    ) -> Result<EntityRowQueryResult, AttributeStoreError> {
         self.lock().query_entity_rows(entity_query)
     }
 

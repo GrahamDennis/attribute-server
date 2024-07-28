@@ -1,8 +1,8 @@
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeStoreErrorKind, AttributeToUpdate,
     AttributeTypes, AttributeValue, BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId,
-    EntityLocator, EntityQuery, EntityRow, EntityRowQuery, EntityVersion, Symbol,
-    UpdateEntityRequest, ValueType, WatchEntitiesEvent,
+    EntityLocator, EntityQuery, EntityQueryResult, EntityRowQuery, EntityRowQueryResult,
+    EntityVersion, Symbol, UpdateEntityRequest, ValueType, WatchEntitiesEvent,
 };
 use garde::Unvalidated;
 use std::collections::HashMap;
@@ -63,7 +63,11 @@ impl InMemoryAttributeStore {
         }
     }
 
-    fn entity_version(&mut self) -> EntityVersion {
+    fn current_entity_version(&self) -> EntityVersion {
+        EntityVersion(self.entity_version_sequence.start)
+    }
+
+    fn next_entity_version(&mut self) -> EntityVersion {
         EntityVersion(self.entity_version_sequence.next().unwrap())
     }
 
@@ -92,7 +96,7 @@ impl InMemoryAttributeStore {
                 ),
                 source: err.into(),
             })?),
-            entity_version: self.entity_version(),
+            entity_version: self.next_entity_version(),
             attributes,
         };
 
@@ -195,7 +199,7 @@ impl AttributeStore for InMemoryAttributeStore {
     fn query_entities(
         &self,
         entity_query: &EntityQuery,
-    ) -> Result<Vec<Entity>, AttributeStoreError> {
+    ) -> Result<EntityQueryResult, AttributeStoreError> {
         log::trace!("Received query_entity request");
 
         let EntityQuery { root } = entity_query;
@@ -207,14 +211,17 @@ impl AttributeStore for InMemoryAttributeStore {
             .cloned()
             .collect();
 
-        Ok(entities)
+        Ok(EntityQueryResult {
+            entities,
+            entity_version: self.current_entity_version(),
+        })
     }
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
     fn query_entity_rows(
         &self,
         entity_row_query: &EntityRowQuery,
-    ) -> Result<Vec<EntityRow>, AttributeStoreError> {
+    ) -> Result<EntityRowQueryResult, AttributeStoreError> {
         log::trace!("Received query_entity_rows request");
 
         // validate
@@ -232,7 +239,10 @@ impl AttributeStore for InMemoryAttributeStore {
             .map(|entity| entity.to_entity_row(attribute_types))
             .collect();
 
-        Ok(entity_rows)
+        Ok(EntityRowQueryResult {
+            entity_rows,
+            entity_version: self.current_entity_version(),
+        })
     }
 
     #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
@@ -321,7 +331,7 @@ impl AttributeStore for InMemoryAttributeStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{EntityQueryNode, MatchAllQueryNode};
+    use crate::store::{EntityQueryNode, EntityRow, MatchAllQueryNode};
 
     #[test]
     fn can_fetch_by_entity_id() {
@@ -344,7 +354,7 @@ mod tests {
     #[test]
     fn can_query_all() {
         let store = InMemoryAttributeStore::new();
-        let entities = store
+        let entity_row_query_result = store
             .query_entity_rows(&EntityRowQuery {
                 attribute_types: vec![
                     BootstrapSymbol::EntityId.into(),
@@ -354,7 +364,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            entities,
+            entity_row_query_result.entity_rows,
             InMemoryAttributeStore::bootstrap_entities()
                 .into_iter()
                 .map(|entity| EntityRow {
