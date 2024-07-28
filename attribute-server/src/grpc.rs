@@ -2,8 +2,9 @@ use crate::convert::{ConversionError, IntoProto, TryFromProto};
 use crate::pb;
 use attribute_store::store::{
     AttributeStoreError, AttributeStoreErrorKind, CreateAttributeTypeRequest, Entity,
-    EntityLocator, EntityQuery, EntityQueryNode, EntityRowQuery, UpdateEntityRequest,
-    WatchEntitiesEvent, WatchEntitiesRequest,
+    EntityLocator, EntityQuery, EntityQueryNode, EntityRowQuery, EntityVersion, Symbol,
+    UpdateEntityRequest, WatchEntitiesEvent, WatchEntitiesRequest, WatchEntityRowsEvent,
+    WatchEntityRowsRequest,
 };
 use std::iter;
 use std::pin::Pin;
@@ -217,44 +218,119 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
 
         let receiver = self.store.watch_entities_receiver();
 
-        let initial_events: Vec<pb::WatchEntitiesEvent> =
-            if watch_entities_request.send_initial_events {
-                let entity_query = EntityQuery {
-                    root: entity_query_node.clone(),
-                };
-                let entity_query_result = self
-                    .store
-                    .query_entities(&entity_query)
-                    .await
-                    .map_err(AttributeStoreError)?;
-
-                // FIXME: include version ID from initial query in bookmark event
-                let bookmark_event = pb::WatchEntitiesEvent {
-                    event: Some(pb::watch_entities_event::Event::Bookmark(
-                        pb::BookmarkEvent {
-                            entity_version: entity_query_result.entity_version.into_proto(),
-                        },
-                    )),
-                };
-                entity_query_result
-                    .entities
-                    .into_iter()
-                    .map(|entity| WatchEntitiesEvent {
-                        before: None,
-                        after: Some(entity),
-                    })
-                    .map(|event| event.into_proto())
-                    .chain(iter::once(bookmark_event))
-                    .collect()
-            } else {
-                vec![]
+        let (initial_events, min_entity_version) = if watch_entities_request.send_initial_events {
+            let entity_query = EntityQuery {
+                root: entity_query_node.clone(),
             };
+            let entity_query_result = self
+                .store
+                .query_entities(&entity_query)
+                .await
+                .map_err(AttributeStoreError)?;
 
-        // FIXME: filter to only events after the entity version ID of the initial events.
+            let bookmark_event = pb::WatchEntitiesEvent {
+                event: Some(pb::watch_entities_event::Event::Bookmark(
+                    pb::BookmarkEvent {
+                        entity_version: entity_query_result.entity_version.into_proto(),
+                    },
+                )),
+            };
+            let initial_events = entity_query_result
+                .entities
+                .into_iter()
+                .map(|entity| WatchEntitiesEvent {
+                    entity_version: entity_query_result.entity_version,
+                    before: None,
+                    after: Some(entity),
+                })
+                .map(|event| event.into_proto())
+                .chain(iter::once(bookmark_event))
+                .collect();
+
+            (initial_events, Some(entity_query_result.entity_version))
+        } else {
+            (vec![], None)
+        };
+
         let ongoing_events = BroadcastStream::new(receiver)
             .filter_map(|v| v.ok())
-            .filter_map(move |event| filter_event(event, &entity_query_node))
-            .filter(|WatchEntitiesEvent { before, after }| before != after)
+            .filter_map(move |event| filter_event(event, &entity_query_node, min_entity_version))
+            .filter(|WatchEntitiesEvent { before, after, .. }| before != after)
+            .map(|event| event.into_proto());
+
+        let response_stream = tokio_stream::iter(initial_events)
+            .chain(ongoing_events)
+            .map(Ok);
+
+        Ok(Response::new(Box::pin(response_stream)))
+    }
+
+    type WatchEntityRowsStream =
+        Pin<Box<dyn Stream<Item = Result<pb::WatchEntityRowsEvent, Status>> + Send + 'static>>;
+
+    async fn watch_entity_rows(
+        &self,
+        request: Request<pb::WatchEntityRowsRequest>,
+    ) -> Result<Response<Self::WatchEntityRowsStream>, Status> {
+        use AttributeServerError::*;
+
+        log::info!("Received watch entities request");
+
+        let watch_entity_rows_request_proto = request.into_inner();
+        let watch_entity_rows_request =
+            WatchEntityRowsRequest::try_from_proto(watch_entity_rows_request_proto)
+                .map_err(ConversionError)?;
+        let entity_query_node = watch_entity_rows_request.query;
+
+        let receiver = self.store.watch_entities_receiver();
+
+        let (initial_events, min_entity_version) = if watch_entity_rows_request.send_initial_events
+        {
+            let entity_row_query = EntityRowQuery {
+                root: entity_query_node.clone(),
+                attribute_types: watch_entity_rows_request.attribute_types.clone(),
+            };
+            let entity_rows_query_result = self
+                .store
+                .query_entity_rows(&entity_row_query)
+                .await
+                .map_err(AttributeStoreError)?;
+
+            let bookmark_event = pb::WatchEntityRowsEvent {
+                event: Some(pb::watch_entity_rows_event::Event::Bookmark(
+                    pb::BookmarkEvent {
+                        entity_version: entity_rows_query_result.entity_version.into_proto(),
+                    },
+                )),
+            };
+            let initial_events = entity_rows_query_result
+                .entity_rows
+                .into_iter()
+                .map(|entity_row| pb::WatchEntityRowsEvent {
+                    event: Some(pb::watch_entity_rows_event::Event::Added(
+                        pb::AddedEntityRowEvent {
+                            entity_row: Some(entity_row.into_proto()),
+                        },
+                    )),
+                })
+                .chain(iter::once(bookmark_event))
+                .collect();
+
+            (
+                initial_events,
+                Some(entity_rows_query_result.entity_version),
+            )
+        } else {
+            (vec![], None)
+        };
+
+        let ongoing_events = BroadcastStream::new(receiver)
+            .filter_map(|v| v.ok())
+            .filter_map(move |event| filter_event(event, &entity_query_node, min_entity_version))
+            .map(move |event| {
+                to_watch_entity_row_event(event, &watch_entity_rows_request.attribute_types)
+            })
+            .filter(|WatchEntityRowsEvent { before, after, .. }| before != after)
             .map(|event| event.into_proto());
 
         let response_stream = tokio_stream::iter(initial_events)
@@ -265,15 +341,43 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
     }
 }
 
+fn to_watch_entity_row_event(
+    event: WatchEntitiesEvent,
+    attribute_types: &[Symbol],
+) -> WatchEntityRowsEvent {
+    let WatchEntitiesEvent {
+        before,
+        after,
+        entity_version,
+    } = event;
+    WatchEntityRowsEvent {
+        entity_version,
+        before: before.map(|entity| entity.to_entity_row(attribute_types)),
+        after: after.map(|entity| entity.to_entity_row(attribute_types)),
+    }
+}
+
 fn filter_event(
     watch_entities_event: WatchEntitiesEvent,
     entity_query_node: &EntityQueryNode,
+    min_entity_version: Option<EntityVersion>,
 ) -> Option<WatchEntitiesEvent> {
-    let WatchEntitiesEvent { before, after } = watch_entities_event;
+    let WatchEntitiesEvent {
+        before,
+        after,
+        entity_version,
+    } = watch_entities_event;
+
+    if let Some(min_entity_version) = min_entity_version {
+        if entity_version < min_entity_version {
+            return None;
+        }
+    }
 
     let matches_query = |entity: &Entity| -> bool { entity_query_node.matches(entity) };
 
     Some(WatchEntitiesEvent {
+        entity_version,
         before: before.filter(matches_query),
         after: after.filter(matches_query),
     })

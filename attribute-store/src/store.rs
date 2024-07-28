@@ -67,7 +67,7 @@ impl<T: Into<AttributeStoreErrorKind>> From<T> for AttributeStoreError {
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
 pub struct EntityId(pub i64);
 
-#[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
+#[derive(Eq, PartialEq, Hash, Debug, Copy, Clone, Ord, PartialOrd)]
 pub struct EntityVersion(pub i64);
 
 impl From<i64> for EntityId {
@@ -358,10 +358,29 @@ pub struct WatchEntitiesRequest {
     pub send_initial_events: bool,
 }
 
+#[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
+#[garde(context(AttributeTypes))]
+pub struct WatchEntityRowsRequest {
+    #[garde(skip)]
+    pub query: EntityQueryNode,
+    #[garde(inner(custom(is_known_attribute_type)))]
+    pub attribute_types: Vec<Symbol>,
+    #[garde(skip)]
+    pub send_initial_events: bool,
+}
+
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct WatchEntitiesEvent {
+    pub entity_version: EntityVersion,
     pub before: Option<Entity>,
     pub after: Option<Entity>,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct WatchEntityRowsEvent {
+    pub entity_version: EntityVersion,
+    pub before: Option<EntityRow>,
+    pub after: Option<EntityRow>,
 }
 
 #[async_trait]

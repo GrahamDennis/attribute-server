@@ -5,7 +5,8 @@ use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
     Entity, EntityId, EntityLocator, EntityQueryNode, EntityRow, EntityRowQuery, EntityVersion,
     HasAttributeTypesNode, MatchAllQueryNode, MatchNoneQueryNode, OrQueryNode, Symbol,
-    UpdateEntityRequest, ValueType, WatchEntitiesEvent, WatchEntitiesRequest,
+    UpdateEntityRequest, ValueType, WatchEntitiesEvent, WatchEntitiesRequest, WatchEntityRowsEvent,
+    WatchEntityRowsRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use prost::Message;
@@ -207,17 +208,7 @@ impl TryFromProto<pb::QueryEntityRowsRequest> for EntityRowQuery {
             attribute_types: {
                 let mut path = garde::util::nested_path!(parent, "attribute_types");
 
-                let attribute_types: Result<Vec<Symbol>, _> = value
-                    .attribute_types
-                    .into_iter()
-                    .enumerate()
-                    .map(|(idx, attribute_type)| {
-                        let mut attribute_type_path = garde::util::nested_path!(path, idx);
-                        Symbol::try_from_proto_with(attribute_type, &mut attribute_type_path)
-                    })
-                    .collect();
-
-                attribute_types?
+                Vec::try_from_proto_with(value.attribute_types, &mut path)?
             },
         })
     }
@@ -551,6 +542,58 @@ impl IntoProto<pb::WatchEntitiesEvent> for WatchEntitiesEvent {
                 }
                 (before, after) => {
                     log::warn!("Could not convert watch entities event with before={:?}; after={:?} into protobuf", before, after);
+                    None
+                }
+            },
+        }
+    }
+}
+
+impl TryFromProto<pb::WatchEntityRowsRequest> for WatchEntityRowsRequest {
+    fn try_from_proto_with(
+        value: pb::WatchEntityRowsRequest,
+        mut parent: &mut dyn FnMut() -> garde::Path,
+    ) -> ConversionResult<Self> {
+        use FieldError::*;
+
+        Ok(WatchEntityRowsRequest {
+            query: {
+                let mut path = garde::util::nested_path!(parent, "query");
+
+                let query_proto = value.query.ok_or_else(|| FieldMissing.at_path(path()))?;
+                EntityQueryNode::try_from_proto_with(query_proto, &mut path)?
+            },
+            attribute_types: {
+                let mut path = garde::util::nested_path!(parent, "attribute_types");
+
+                Vec::try_from_proto_with(value.attribute_types, &mut path)?
+            },
+            send_initial_events: value.send_initial_events,
+        })
+    }
+}
+
+impl IntoProto<pb::WatchEntityRowsEvent> for WatchEntityRowsEvent {
+    fn into_proto(self) -> pb::WatchEntityRowsEvent {
+        pb::WatchEntityRowsEvent {
+            event: match (self.before, self.after) {
+                (None, Some(after)) => Some(pb::watch_entity_rows_event::Event::Added(
+                    pb::AddedEntityRowEvent {
+                        entity_row: Some(after.into_proto()),
+                    },
+                )),
+                (Some(_), Some(after)) => Some(pb::watch_entity_rows_event::Event::Modified(
+                    pb::ModifiedEntityRowEvent {
+                        entity_row: Some(after.into_proto()),
+                    },
+                )),
+                (Some(before), None) => Some(pb::watch_entity_rows_event::Event::Removed(
+                    pb::RemovedEntityRowEvent {
+                        entity_row: Some(before.into_proto()),
+                    },
+                )),
+                (before, after) => {
+                    log::warn!("Could not convert watch entity rows event with before={:?}; after={:?} into protobuf", before, after);
                     None
                 }
             },

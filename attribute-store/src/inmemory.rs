@@ -103,6 +103,7 @@ impl InMemoryAttributeStore {
         self.entities.push(entity.clone());
 
         let _ = self.watch_entities_channel.send(WatchEntitiesEvent {
+            entity_version: entity.entity_version,
             before: None,
             after: Some(entity.clone()),
         });
@@ -128,6 +129,7 @@ impl InMemoryAttributeStore {
         if before != *entity {
             entity.entity_version = EntityVersion(entity_version_sequence.next().unwrap());
             let _ = watch_entities_channel.send(WatchEntitiesEvent {
+                entity_version: entity.entity_version,
                 before: Some(before),
                 after: Some(entity.clone()),
             });

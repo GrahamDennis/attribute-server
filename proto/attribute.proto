@@ -10,6 +10,7 @@ service AttributeStore {
   rpc QueryEntityRows(QueryEntityRowsRequest) returns (QueryEntityRowsResponse);
   rpc UpdateEntity(UpdateEntityRequest) returns (UpdateEntityResponse);
   rpc WatchEntities(WatchEntitiesRequest) returns (stream WatchEntitiesEvent);
+  rpc WatchEntityRows(WatchEntityRowsRequest) returns (stream WatchEntityRowsEvent);
 }
 
 message PingRequest {}
@@ -133,6 +134,13 @@ message WatchEntitiesRequest {
   bool send_initial_events = 2;
 }
 
+message WatchEntityRowsRequest {
+  EntityQueryNode query = 1;
+  repeated string attribute_types = 2;
+  // Send initial events, and then a bookmark event
+  bool send_initial_events = 3;
+}
+
 message WatchEntitiesEvent {
   oneof event {
     AddedEvent added = 1;
@@ -156,6 +164,28 @@ message RemovedEvent {
   Entity entity = 1;
 }
 
+// FIXME: although the name of this event is inspired by the kubernetes event name, I don't like it.
 message BookmarkEvent {
   string entity_version = 1;
+}
+
+message WatchEntityRowsEvent {
+  oneof event {
+    AddedEntityRowEvent added = 1;
+    ModifiedEntityRowEvent modified = 2;
+    RemovedEntityRowEvent removed = 3;
+    BookmarkEvent bookmark = 4;
+  }
+}
+
+message AddedEntityRowEvent {
+  EntityRow entity_row = 1;
+}
+
+message ModifiedEntityRowEvent {
+  EntityRow entity_row = 1;
+}
+
+message RemovedEntityRowEvent {
+  EntityRow entity_row = 1;
 }

@@ -1,0 +1,14 @@
+{
+  "query": {
+    "hasAttributeTypes": { "attributeTypes": [
+      "@symbolName",
+      "@valueType"
+    ]}
+  },
+  "attributeTypes": [
+    "@id",
+    "@symbolName",
+    "@valueType"
+  ],
+  "sendInitialEvents": true
+}

@@ -4,7 +4,7 @@ use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::entity_query_node::Query;
 use crate::pb::{
     CreateAttributeTypeRequest, EntityQueryNode, HasAttributeTypesNode, PingRequest,
-    QueryEntityRowsRequest, UpdateEntityRequest, WatchEntitiesRequest,
+    QueryEntityRowsRequest, UpdateEntityRequest, WatchEntitiesRequest, WatchEntityRowsRequest,
 };
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -56,6 +56,11 @@ enum Commands {
     },
     /// Watch for changes to entities
     WatchEntities {
+        #[clap(short, long)]
+        json: String,
+    },
+    /// Watch for changes to entity rows
+    WatchEntityRows {
         #[clap(short, long)]
         json: String,
     },
@@ -251,6 +256,21 @@ async fn main() -> anyhow::Result<()> {
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
                 .watch_entities(request)
+                .await
+                .map_err(StatusError::from)?;
+            let mut stream = response.into_inner();
+            while let Some(event) = stream.message().await? {
+                println!("{}", to_json(&event)?);
+            }
+
+            Ok(())
+        }
+        Commands::WatchEntityRows { json } => {
+            let request: WatchEntityRowsRequest = parse_from_json_argument(json)?;
+
+            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
+            let response = attribute_store_client
+                .watch_entity_rows(request)
                 .await
                 .map_err(StatusError::from)?;
             let mut stream = response.into_inner();
