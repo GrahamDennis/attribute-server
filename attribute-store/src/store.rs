@@ -196,11 +196,16 @@ pub enum AttributeValue {
 
 #[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
 #[garde(context(AttributeTypes))]
-pub struct EntityQuery {
+pub struct EntityRowQuery {
     #[garde(skip)]
     pub root: EntityQueryNode,
     #[garde(inner(custom(is_known_attribute_type)))]
     pub attribute_types: Vec<Symbol>,
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub struct EntityQuery {
+    pub root: EntityQueryNode,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -338,6 +343,7 @@ pub struct CreateAttributeTypeRequest {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct WatchEntitiesRequest {
     pub query: EntityQueryNode,
+    pub send_initial_events: bool,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -361,6 +367,11 @@ pub trait ThreadSafeAttributeStore: Send + Sync + 'static {
     async fn query_entities(
         &self,
         entity_query: &EntityQuery,
+    ) -> Result<Vec<Entity>, AttributeStoreError>;
+
+    async fn query_entity_rows(
+        &self,
+        entity_row_query: &EntityRowQuery,
     ) -> Result<Vec<EntityRow>, AttributeStoreError>;
 
     async fn update_entity(
@@ -382,6 +393,11 @@ pub trait AttributeStore {
     fn query_entities(
         &self,
         entity_query: &EntityQuery,
+    ) -> Result<Vec<Entity>, AttributeStoreError>;
+
+    fn query_entity_rows(
+        &self,
+        entity_row_query: &EntityRowQuery,
     ) -> Result<Vec<EntityRow>, AttributeStoreError>;
 
     fn update_entity(
@@ -412,8 +428,15 @@ impl<T: AttributeStore + Send + 'static> ThreadSafeAttributeStore for Mutex<T> {
     async fn query_entities(
         &self,
         entity_query: &EntityQuery,
-    ) -> Result<Vec<EntityRow>, AttributeStoreError> {
+    ) -> Result<Vec<Entity>, AttributeStoreError> {
         self.lock().query_entities(entity_query)
+    }
+
+    async fn query_entity_rows(
+        &self,
+        entity_query: &EntityRowQuery,
+    ) -> Result<Vec<EntityRow>, AttributeStoreError> {
+        self.lock().query_entity_rows(entity_query)
     }
 
     async fn update_entity(

@@ -7,7 +7,7 @@ service AttributeStore {
 
   rpc CreateAttributeType(CreateAttributeTypeRequest) returns (CreateAttributeTypeResponse);
   rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
-  rpc QueryEntities(QueryEntitiesRequest) returns (QueryEntitiesResponse);
+  rpc QueryEntityRows(QueryEntityRowsRequest) returns (QueryEntityRowsResponse);
   rpc UpdateEntity(UpdateEntityRequest) returns (UpdateEntityResponse);
   rpc WatchEntities(WatchEntitiesRequest) returns (stream WatchEntitiesEvent);
 }
@@ -46,12 +46,12 @@ message GetEntityResponse {
   Entity entity = 1;
 }
 
-message QueryEntitiesRequest {
+message QueryEntityRowsRequest {
   EntityQueryNode root = 1;
   repeated string attribute_types = 2;
 }
 
-message QueryEntitiesResponse {
+message QueryEntityRowsResponse {
   repeated EntityRow rows = 1;
 }
 
@@ -129,9 +129,33 @@ message UpdateEntityResponse {
 
 message WatchEntitiesRequest {
   EntityQueryNode query = 1;
+  // Send initial events, and then a bookmark event
+  bool send_initial_events = 2;
 }
 
 message WatchEntitiesEvent {
-  Entity before = 1;
-  Entity after = 2;
+  oneof event {
+    AddedEvent added = 1;
+    ModifiedEvent modified = 2;
+    RemovedEvent removed = 3;
+    BookmarkEvent bookmark = 4;
+  }
+}
+
+message AddedEvent {
+  Entity entity = 1;
+}
+
+message ModifiedEvent {
+  // The current state of the entity
+  Entity entity = 1;
+}
+
+message RemovedEvent {
+  // The state of the entity prior to it being removed
+  Entity entity = 1;
+}
+
+message BookmarkEvent {
+
 }

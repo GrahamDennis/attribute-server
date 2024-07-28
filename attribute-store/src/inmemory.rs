@@ -1,8 +1,8 @@
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeStoreErrorKind, AttributeToUpdate,
     AttributeTypes, AttributeValue, BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId,
-    EntityLocator, EntityQuery, EntityRow, EntityVersion, Symbol, UpdateEntityRequest, ValueType,
-    WatchEntitiesEvent,
+    EntityLocator, EntityQuery, EntityRow, EntityRowQuery, EntityVersion, Symbol,
+    UpdateEntityRequest, ValueType, WatchEntitiesEvent,
 };
 use garde::Unvalidated;
 use std::collections::HashMap;
@@ -15,6 +15,7 @@ pub struct InMemoryAttributeStore {
     attribute_types: AttributeTypes,
     entities: Vec<Entity>,
     watch_entities_channel: Sender<WatchEntitiesEvent>,
+    // entity version, transaction ID or store version?
     entity_version_sequence: std::ops::RangeFrom<i64>,
 }
 
@@ -194,13 +195,32 @@ impl AttributeStore for InMemoryAttributeStore {
     fn query_entities(
         &self,
         entity_query: &EntityQuery,
+    ) -> Result<Vec<Entity>, AttributeStoreError> {
+        log::trace!("Received query_entity request");
+
+        let EntityQuery { root } = entity_query;
+
+        let entities = self
+            .entities
+            .iter()
+            .filter(|entity| root.matches(entity))
+            .cloned()
+            .collect();
+
+        Ok(entities)
+    }
+
+    #[tracing::instrument(skip(self), ret(level = Level::TRACE), err(level = Level::WARN))]
+    fn query_entity_rows(
+        &self,
+        entity_row_query: &EntityRowQuery,
     ) -> Result<Vec<EntityRow>, AttributeStoreError> {
-        log::trace!("Received query_entities request");
+        log::trace!("Received query_entity_rows request");
 
         // validate
         let validated_entity_query =
-            Unvalidated::new(entity_query).validate_with(&self.attribute_types)?;
-        let EntityQuery {
+            Unvalidated::new(entity_row_query).validate_with(&self.attribute_types)?;
+        let EntityRowQuery {
             root,
             attribute_types,
         } = validated_entity_query.into_inner();
@@ -325,7 +345,7 @@ mod tests {
     fn can_query_all() {
         let store = InMemoryAttributeStore::new();
         let entities = store
-            .query_entities(&EntityQuery {
+            .query_entity_rows(&EntityRowQuery {
                 attribute_types: vec![
                     BootstrapSymbol::EntityId.into(),
                     BootstrapSymbol::SymbolName.into(),

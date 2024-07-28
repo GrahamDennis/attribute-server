@@ -1,9 +1,10 @@
 mod pb;
 
 use crate::pb::attribute_store_client::AttributeStoreClient;
+use crate::pb::entity_query_node::Query;
 use crate::pb::{
-    CreateAttributeTypeRequest, PingRequest, QueryEntitiesRequest, UpdateEntityRequest,
-    WatchEntitiesRequest,
+    CreateAttributeTypeRequest, EntityQueryNode, HasAttributeTypesNode, PingRequest,
+    QueryEntityRowsRequest, UpdateEntityRequest, WatchEntitiesRequest,
 };
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -44,7 +45,7 @@ enum Commands {
         json: String,
     },
     /// Query for entities
-    QueryEntities {
+    QueryEntityRows {
         #[clap(short, long)]
         json: String,
     },
@@ -58,6 +59,9 @@ enum Commands {
         #[clap(short, long)]
         json: String,
     },
+    // ControlLoop {
+    //
+    // },
     /// Generate shell completions script
     GenerateCompletions {
         /// shell to generate completions for
@@ -170,6 +174,34 @@ where
     Ok(())
 }
 
+async fn control_loop_iteration() -> anyhow::Result<()> {
+    Ok(())
+}
+
+async fn control_loop() -> anyhow::Result<()> {
+    let request: WatchEntitiesRequest = WatchEntitiesRequest {
+        query: Some(EntityQueryNode {
+            query: Some(Query::HasAttributeTypes(HasAttributeTypesNode {
+                // Insert attribute types here
+                attribute_types: vec![],
+            })),
+        }),
+        send_initial_events: true,
+    };
+
+    // let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
+    // let response = attribute_store_client
+    //     .watch_entities(request)
+    //     .await
+    //     .map_err(StatusError::from)?;
+    // let mut stream = response.into_inner();
+    // while let Some(event) = stream.message().await? {
+    //     println!("{}", to_json(&event)?);
+    // }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -199,10 +231,10 @@ async fn main() -> anyhow::Result<()> {
             })
             .await
         }
-        Commands::QueryEntities { json } => {
+        Commands::QueryEntityRows { json } => {
             let mut client = create_attribute_store_client(&cli.endpoint).await?;
-            send_request(json, |request: QueryEntitiesRequest| {
-                client.query_entities(request)
+            send_request(json, |request: QueryEntityRowsRequest| {
+                client.query_entity_rows(request)
             })
             .await
         }

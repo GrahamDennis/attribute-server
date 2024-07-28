@@ -3,7 +3,7 @@ use crate::pb;
 use anyhow::format_err;
 use attribute_store::store::{
     AndQueryNode, AttributeToUpdate, AttributeType, AttributeValue, CreateAttributeTypeRequest,
-    Entity, EntityId, EntityLocator, EntityQuery, EntityQueryNode, EntityRow, EntityVersion,
+    Entity, EntityId, EntityLocator, EntityQueryNode, EntityRow, EntityRowQuery, EntityVersion,
     HasAttributeTypesNode, MatchAllQueryNode, MatchNoneQueryNode, OrQueryNode, Symbol,
     UpdateEntityRequest, ValueType, WatchEntitiesEvent, WatchEntitiesRequest,
 };
@@ -190,14 +190,14 @@ impl IntoProto<pb::attribute_value::AttributeValue> for AttributeValue {
     }
 }
 
-impl TryFromProto<pb::QueryEntitiesRequest> for EntityQuery {
+impl TryFromProto<pb::QueryEntityRowsRequest> for EntityRowQuery {
     fn try_from_proto_with(
-        value: pb::QueryEntitiesRequest,
+        value: pb::QueryEntityRowsRequest,
         mut parent: &mut dyn FnMut() -> garde::Path,
     ) -> ConversionResult<Self> {
         use FieldError::*;
 
-        Ok(EntityQuery {
+        Ok(EntityRowQuery {
             root: {
                 let mut path = garde::util::nested_path!(parent, "root");
                 let entity_query_node_proto =
@@ -525,6 +525,7 @@ impl TryFromProto<pb::WatchEntitiesRequest> for WatchEntitiesRequest {
         let query_proto = value.query.ok_or_else(|| FieldMissing.at_path(path()))?;
         Ok(WatchEntitiesRequest {
             query: EntityQueryNode::try_from_proto_with(query_proto, &mut path)?,
+            send_initial_events: value.send_initial_events,
         })
     }
 }
@@ -532,8 +533,27 @@ impl TryFromProto<pb::WatchEntitiesRequest> for WatchEntitiesRequest {
 impl IntoProto<pb::WatchEntitiesEvent> for WatchEntitiesEvent {
     fn into_proto(self) -> pb::WatchEntitiesEvent {
         pb::WatchEntitiesEvent {
-            before: self.before.map(IntoProto::into_proto),
-            after: self.after.map(IntoProto::into_proto),
+            event: match (self.before, self.after) {
+                (None, Some(after)) => {
+                    Some(pb::watch_entities_event::Event::Added(pb::AddedEvent {
+                        entity: Some(after.into_proto()),
+                    }))
+                }
+                (Some(_), Some(after)) => Some(pb::watch_entities_event::Event::Modified(
+                    pb::ModifiedEvent {
+                        entity: Some(after.into_proto()),
+                    },
+                )),
+                (Some(before), None) => {
+                    Some(pb::watch_entities_event::Event::Removed(pb::RemovedEvent {
+                        entity: Some(before.into_proto()),
+                    }))
+                }
+                (before, after) => {
+                    log::warn!("Could not convert watch entities event with before={:?}; after={:?} into protobuf", before, after);
+                    None
+                }
+            },
         }
     }
 }
