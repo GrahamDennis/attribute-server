@@ -1,9 +1,11 @@
 {
   "query": {
-    "hasAttributeTypes": { "attributeTypes": [
-      "@symbolName",
-      "@valueType"
-    ]}
+    "hasAttributeTypes": {
+      "attributeTypes": [
+        "@symbolName",
+        "@valueType"
+      ]
+    }
   },
   "attributeTypes": [
     "@id",
