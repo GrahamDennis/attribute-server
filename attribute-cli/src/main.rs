@@ -1,22 +1,24 @@
+mod control_loop;
+mod json;
+mod mavlink;
 mod pb;
 
+use crate::control_loop::control_loop;
+use crate::mavlink::{mavlink_run, MavlinkArgs};
 use crate::pb::attribute_store_client::AttributeStoreClient;
-use crate::pb::entity_query_node::Query;
 use crate::pb::{
-    CreateAttributeTypeRequest, EntityQueryNode, HasAttributeTypesNode, PingRequest,
-    QueryEntityRowsRequest, UpdateEntityRequest, WatchEntitiesRequest, WatchEntityRowsRequest,
+    CreateAttributeTypeRequest, PingRequest, QueryEntityRowsRequest, UpdateEntityRequest,
+    WatchEntitiesRequest, WatchEntityRowsRequest,
 };
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use prost_reflect::{DynamicMessage, ReflectMessage, SerializeOptions};
+use prost_reflect::ReflectMessage;
 use serde::Deserializer;
-use serde_path_to_error::Track;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
 use std::future::Future;
-use std::io::BufReader;
 use thiserror::Error;
+use tonic::codegen::tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Status;
 use tonic_types::{ErrorDetail, StatusExt};
@@ -64,9 +66,8 @@ enum Commands {
         #[clap(short, long)]
         json: String,
     },
-    // ControlLoop {
-    //
-    // },
+    ControlLoop {},
+    Mavlink(MavlinkArgs),
     /// Generate shell completions script
     GenerateCompletions {
         /// shell to generate completions for
@@ -117,52 +118,6 @@ fn print_completions<G: clap_complete::Generator>(gen: G, cmd: &mut clap::Comman
     clap_complete::generate(gen, cmd, cmd.get_name().to_string(), &mut std::io::stdout());
 }
 
-fn parse_from_deserializer<'de, T: ReflectMessage + Default, D: Deserializer<'de>>(
-    deserializer: D,
-) -> anyhow::Result<T>
-where
-    <D as Deserializer<'de>>::Error: Send + Sync + 'static,
-{
-    let mut track = Track::new();
-    let wrapped_deserializer = serde_path_to_error::Deserializer::new(deserializer, &mut track);
-    let message = DynamicMessage::deserialize(T::default().descriptor(), wrapped_deserializer)
-        .map_err(|err| serde_path_to_error::Error::new(track.path(), err))?;
-
-    Ok(message.transcode_to()?)
-}
-
-fn parse_from_json_argument<T: ReflectMessage + Default>(json_argument: &str) -> anyhow::Result<T> {
-    let parsed = if let Some(json_file) = json_argument.strip_prefix('@') {
-        let mut deserializer =
-            serde_json::de::Deserializer::from_reader(BufReader::new(File::open(json_file)?));
-        let result = parse_from_deserializer(&mut deserializer)?;
-        deserializer.end()?;
-        result
-    } else {
-        let mut deserializer = serde_json::de::Deserializer::from_str(json_argument);
-        let result = parse_from_deserializer(&mut deserializer)?;
-        deserializer.end()?;
-        result
-    };
-
-    Ok(parsed)
-}
-
-fn to_json<T: ReflectMessage>(message: &T) -> anyhow::Result<String> {
-    let mut buffer = vec![];
-    let mut serializer = serde_json::Serializer::new(&mut buffer);
-    let mut track = Track::new();
-    let wrapped_serializer = serde_path_to_error::Serializer::new(&mut serializer, &mut track);
-    let options = SerializeOptions::new().skip_default_fields(false);
-
-    message
-        .transcode_to_dynamic()
-        .serialize_with_options(wrapped_serializer, &options)
-        .map_err(|err| serde_path_to_error::Error::new(track.path(), err))?;
-
-    Ok(String::from_utf8(buffer)?)
-}
-
 async fn send_request<T: ReflectMessage + Default, R: ReflectMessage, Fut>(
     json: &str,
     call: impl FnOnce(T) -> Fut,
@@ -170,39 +125,11 @@ async fn send_request<T: ReflectMessage + Default, R: ReflectMessage, Fut>(
 where
     Fut: Future<Output = Result<tonic::Response<R>, Status>>,
 {
-    let request: T = parse_from_json_argument(json)?;
+    let request: T = json::parse_from_json_argument(json)?;
 
     let response = call(request).await.map_err(StatusError::from)?;
     let response = response.into_inner();
-    println!("{}", to_json(&response)?);
-
-    Ok(())
-}
-
-async fn control_loop_iteration() -> anyhow::Result<()> {
-    Ok(())
-}
-
-async fn control_loop() -> anyhow::Result<()> {
-    let request: WatchEntitiesRequest = WatchEntitiesRequest {
-        query: Some(EntityQueryNode {
-            query: Some(Query::HasAttributeTypes(HasAttributeTypesNode {
-                // Insert attribute types here
-                attribute_types: vec![],
-            })),
-        }),
-        send_initial_events: true,
-    };
-
-    // let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
-    // let response = attribute_store_client
-    //     .watch_entities(request)
-    //     .await
-    //     .map_err(StatusError::from)?;
-    // let mut stream = response.into_inner();
-    // while let Some(event) = stream.message().await? {
-    //     println!("{}", to_json(&event)?);
-    // }
+    println!("{}", json::to_json(&response)?);
 
     Ok(())
 }
@@ -251,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::WatchEntities { json } => {
-            let request: WatchEntitiesRequest = parse_from_json_argument(json)?;
+            let request: WatchEntitiesRequest = json::parse_from_json_argument(json)?;
 
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
@@ -260,13 +187,13 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(StatusError::from)?;
             let mut stream = response.into_inner();
             while let Some(event) = stream.message().await? {
-                println!("{}", to_json(&event)?);
+                println!("{}", json::to_json(&event)?);
             }
 
             Ok(())
         }
         Commands::WatchEntityRows { json } => {
-            let request: WatchEntityRowsRequest = parse_from_json_argument(json)?;
+            let request: WatchEntityRowsRequest = json::parse_from_json_argument(json)?;
 
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
@@ -275,7 +202,7 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(StatusError::from)?;
             let mut stream = response.into_inner();
             while let Some(event) = stream.message().await? {
-                println!("{}", to_json(&event)?);
+                println!("{}", json::to_json(&event)?);
             }
 
             Ok(())
@@ -286,6 +213,16 @@ async fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| format_err!("specify shell with `--shell`"))?,
             &mut Cli::command(),
         )),
+        Commands::ControlLoop { .. } => {
+            let _ = control_loop(&cli).await?;
+
+            Ok(())
+        }
+        Commands::Mavlink(mavlink_args) => {
+            let _ = mavlink_run(&cli, mavlink_args).await?;
+
+            Ok(())
+        }
     }
 }
 

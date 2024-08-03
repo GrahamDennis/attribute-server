@@ -55,6 +55,18 @@ impl From<AttributeServerError> for Status {
                                 .collect::<Vec<_>>(),
                         ),
                     ),
+                    AttributeStoreErrorKind::AttributeTypeAlreadyExists(entity) => {
+                        Status::with_error_details(
+                            Code::AlreadyExists,
+                            "attribute type already exists",
+                            ErrorDetails::with_resource_info(
+                                "entity",
+                                entity.entity_id.into_proto(),
+                                "owner",
+                                format!("{:?}", entity),
+                            ),
+                        )
+                    }
                     err => Status::invalid_argument(format!("{:#}", anyhow::Error::from(err))),
                 }
             }

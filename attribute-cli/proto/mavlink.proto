@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package me.grahamdennis.attribute.mavlink;
+
+message GlobalPosition {
+  uint32 time_boot_ms = 1;
+  double latitude_deg = 2;
+  double longitude_deg = 3;
+  double alt_msl_m = 4;
+  double relative_alt_agl_m = 5;
+  float velocity_x_m_s = 6;
+  float velocity_y_m_s = 7;
+  float velocity_z_m_s = 8;
+  float heading_deg = 9;
+}

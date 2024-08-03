@@ -5,8 +5,8 @@ use std::path::PathBuf;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::new();
 
-    let protos = &["../proto/attribute.proto"];
-    let includes = &["../proto/"];
+    let protos = &["proto/mavlink.proto", "../proto/attribute.proto"];
+    let includes = &["proto/", "../proto/"];
 
     prost_reflect_build::Builder::new()
         .file_descriptor_set_bytes("crate::pb::FILE_DESCRIPTOR_SET")

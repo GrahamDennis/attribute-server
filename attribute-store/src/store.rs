@@ -325,17 +325,6 @@ fn is_known_attribute_type(symbol: &Symbol, attribute_types: &AttributeTypes) ->
     Ok(())
 }
 
-fn is_new_attribute_type(
-    attribute_type: &AttributeType,
-    attribute_types: &AttributeTypes,
-) -> garde::Result {
-    if attribute_types.contains_key(&attribute_type.symbol) {
-        return Err(garde::Error::new("attribute type already exists"));
-    }
-
-    Ok(())
-}
-
 #[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
 #[garde(context(AttributeTypes))]
 pub struct UpdateEntityRequest {
@@ -348,7 +337,7 @@ pub struct UpdateEntityRequest {
 #[derive(Eq, PartialEq, Debug, Clone, garde::Validate)]
 #[garde(context(AttributeTypes))]
 pub struct CreateAttributeTypeRequest {
-    #[garde(custom(is_new_attribute_type))]
+    #[garde(skip)]
     pub attribute_type: AttributeType,
 }
 

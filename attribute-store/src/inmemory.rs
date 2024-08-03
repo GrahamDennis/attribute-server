@@ -1,3 +1,4 @@
+use crate::store::AttributeStoreErrorKind::AttributeTypeAlreadyExists;
 use crate::store::{
     AttributeStore, AttributeStoreError, AttributeStoreErrorKind, AttributeToUpdate,
     AttributeTypes, AttributeValue, BootstrapSymbol, CreateAttributeTypeRequest, Entity, EntityId,
@@ -153,6 +154,10 @@ impl AttributeStore for InMemoryAttributeStore {
         let validated_request =
             Unvalidated::new(create_attribute_type_request).validate_with(&self.attribute_types)?;
         let CreateAttributeTypeRequest { attribute_type } = validated_request.into_inner();
+
+        if let Ok(entity) = self.get_entity(&EntityLocator::Symbol(attribute_type.symbol.clone())) {
+            return Err(AttributeTypeAlreadyExists(entity))?;
+        }
 
         let entity = self.insert_new_entity_with_attributes(HashMap::from([
             (
