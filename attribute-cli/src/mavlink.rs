@@ -1,6 +1,6 @@
 use crate::pb::{
-    AttributeType, AttributeValue, CreateAttributeTypeRequest, CreateAttributeTypeResponse,
-    ValueType,
+    AttributeType, AttributeValue, CreateAttributeTypeRequest, CreateAttributeTypeResponse, Entity,
+    EntityLocator, UpdateEntityRequest, ValueType,
 };
 use crate::{pb, Cli};
 use clap::Args;
@@ -13,7 +13,9 @@ use maviola::prelude::{
 };
 use maviola::protocol::{ComponentId, MavLinkId, SystemId, V2};
 use prost::Message;
+use prost_reflect::ReflectMessage;
 use std::convert::Into;
+use std::string::ToString;
 use std::sync::LazyLock;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
@@ -35,24 +37,92 @@ pub struct MavlinkArgs {
 
 enum AttributeTypes {
     GlobalPosition,
+    FileDescriptorSet,
+    FileDescriptorSetRef,
+    MessageName,
 }
 
 impl AttributeTypes {
     fn as_str(&self) -> &'static str {
         match self {
             AttributeTypes::GlobalPosition => "mavlink/globalPosition",
+            AttributeTypes::FileDescriptorSet => "pb/fileDescriptorSet",
+            AttributeTypes::FileDescriptorSetRef => "pb/fileDescriptorSetRef",
+            AttributeTypes::MessageName => "pb/messageName",
+        }
+    }
+}
+
+enum EntityNames {
+    MavlinkFileDescriptorSet,
+}
+
+impl EntityNames {
+    fn as_str(&self) -> &'static str {
+        match self {
+            EntityNames::MavlinkFileDescriptorSet => "mavlink/fileDescriptorSet",
         }
     }
 }
 
 static ATTRIBUTE_TYPES: LazyLock<Vec<CreateAttributeTypeRequest>> = LazyLock::new(|| {
-    vec![CreateAttributeTypeRequest {
-        attribute_type: Some(AttributeType {
-            symbol: AttributeTypes::GlobalPosition.as_str().to_string(),
-            value_type: ValueType::Bytes.into(),
-        }),
-    }]
+    vec![
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: AttributeTypes::FileDescriptorSet.as_str().to_string(),
+                value_type: ValueType::Bytes.into(),
+            }),
+        },
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
+                value_type: ValueType::EntityReference.into(),
+            }),
+        },
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: AttributeTypes::MessageName.as_str().to_string(),
+                value_type: ValueType::Text.into(),
+            }),
+        },
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: AttributeTypes::GlobalPosition.as_str().to_string(),
+                value_type: ValueType::Bytes.into(),
+            }),
+        },
+    ]
 });
+
+fn create_locator(symbol: impl ToString) -> Option<EntityLocator> {
+    Some(EntityLocator {
+        locator: Some(pb::entity_locator::Locator::Symbol(symbol.to_string())),
+    })
+}
+
+fn attribute_value_bytes(bytes: impl Into<Vec<u8>>) -> Option<AttributeValue> {
+    Some(AttributeValue {
+        attribute_value: Some(pb::attribute_value::AttributeValue::BytesValue(
+            bytes.into(),
+        )),
+    })
+}
+
+fn attribute_value_string(value: impl ToString) -> Option<AttributeValue> {
+    Some(AttributeValue {
+        attribute_value: Some(pb::attribute_value::AttributeValue::StringValue(
+            value.to_string(),
+        )),
+    })
+}
+
+fn attribute_value_entity_ref(entity_id: String) -> Option<AttributeValue> {
+    Some(AttributeValue {
+        attribute_value: Some(pb::attribute_value::AttributeValue::EntityIdValue(
+            entity_id,
+        )),
+    })
+}
 
 fn from_mavlink_deg_e7(degrees: i32) -> f64 {
     f64::from(degrees) / 1e7
@@ -156,6 +226,61 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         }
     }
 
+    log::info!("Creating entities");
+
+    {
+        let create_mavlink_fdset_request = UpdateEntityRequest {
+            entity_locator: create_locator(EntityNames::MavlinkFileDescriptorSet.as_str()),
+            attributes_to_update: vec![
+                pb::AttributeToUpdate {
+                    attribute_type: "@symbolName".to_string(),
+                    attribute_value: attribute_value_string(
+                        EntityNames::MavlinkFileDescriptorSet.as_str(),
+                    ),
+                },
+                pb::AttributeToUpdate {
+                    attribute_type: AttributeTypes::FileDescriptorSet.as_str().to_string(),
+                    attribute_value: attribute_value_bytes(pb::mavlink::FILE_DESCRIPTOR_SET),
+                },
+            ],
+        };
+        let mavlink_fdset_response = attribute_store_client
+            .update_entity(create_mavlink_fdset_request)
+            .await?
+            .into_inner();
+        let mavlink_fdset_entity = mavlink_fdset_response
+            .entity
+            .ok_or(anyhow::format_err!("Failed to create mavlink fdset entity"))?;
+        let mavlink_fdset_entity_id = mavlink_fdset_entity.entity_id;
+
+        let create_global_position_request = UpdateEntityRequest {
+            entity_locator: create_locator(AttributeTypes::GlobalPosition.as_str()),
+            attributes_to_update: vec![
+                pb::AttributeToUpdate {
+                    attribute_type: "@symbolName".to_string(),
+                    attribute_value: attribute_value_string(
+                        AttributeTypes::GlobalPosition.as_str(),
+                    ),
+                },
+                pb::AttributeToUpdate {
+                    attribute_type: AttributeTypes::MessageName.as_str().to_string(),
+                    attribute_value: attribute_value_string(
+                        pb::mavlink::GlobalPosition::default()
+                            .descriptor()
+                            .full_name(),
+                    ),
+                },
+                pb::AttributeToUpdate {
+                    attribute_type: AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
+                    attribute_value: attribute_value_entity_ref(mavlink_fdset_entity_id),
+                },
+            ],
+        };
+        let _ = attribute_store_client
+            .update_entity(create_global_position_request)
+            .await?;
+    }
+
     println!("Mavlink running...");
 
     println!("Server endpoints: {:?}", args.server_endpoints);
@@ -189,23 +314,17 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         tokio::select! {
             Ok((frame, global_position_int)) = global_position_rx.recv() => {
             let global_position: pb::mavlink::GlobalPosition = global_position_int.into();
-                // FIXME: push onto queue for publishing to support discarding
                 let symbol_id = format!("mavlink/id/{}:{}", frame.system_id(), frame.component_id());
                 let response = attribute_store_client.update_entity(pb::UpdateEntityRequest {
-                    entity_locator: Some(pb::EntityLocator { locator: Some(pb::entity_locator::Locator::Symbol(
-                        symbol_id.clone()
-                    )) }),
+                    entity_locator: create_locator(&symbol_id),
                     attributes_to_update: vec![
                         pb::AttributeToUpdate {
                             attribute_type: "@symbolName".to_string(),
-                            attribute_value: Some(AttributeValue { attribute_value: Some(pb::attribute_value::AttributeValue::StringValue(
-                                symbol_id.clone()
-                            )) }), },
+                            attribute_value: attribute_value_string(&symbol_id)
+                        },
                         pb::AttributeToUpdate {
                             attribute_type: AttributeTypes::GlobalPosition.as_str().to_string(),
-                            attribute_value: Some(AttributeValue { attribute_value: Some(pb::attribute_value::AttributeValue::BytesValue(
-                                global_position.encode_to_vec()
-                            )) }),
+                            attribute_value: attribute_value_bytes(global_position.encode_to_vec()),
                         }
                     ],
                 }).await?;
