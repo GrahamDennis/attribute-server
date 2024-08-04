@@ -5,7 +5,7 @@ mod mavlink;
 mod pb;
 
 use crate::control_loop::control_loop;
-use crate::fmt::{wrap_watch_entity_rows_event, EntityRowMetadata};
+use crate::fmt::{wrap_watch_entity_rows_event, ColumnMetadata, EntityRowMetadata};
 use crate::mavlink::{mavlink_run, MavlinkArgs};
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::{
@@ -15,7 +15,7 @@ use crate::pb::{
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use prost_reflect::ReflectMessage;
+use prost_reflect::{DescriptorPool, ReflectMessage};
 use serde::Deserializer;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
@@ -136,7 +136,7 @@ where
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -196,12 +196,18 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::WatchEntityRows { json } => {
             let request: WatchEntityRowsRequest = json::parse_from_json_argument(json)?;
+            // FIXME
+            let descriptor = DescriptorPool::decode(pb::mavlink::FILE_DESCRIPTOR_SET)?
+                .get_message_by_name("me.grahamdennis.attribute.mavlink.GlobalPosition")
+                .unwrap();
 
             let entity_row_metadata = EntityRowMetadata {
                 columns: request
                     .attribute_types
                     .iter()
-                    .map(|attribute_type| None)
+                    .map(|attribute_type| {
+                        Some(ColumnMetadata::MessageDescriptor(descriptor.clone()))
+                    })
                     .collect(),
             };
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;

@@ -3,7 +3,7 @@ use crate::pb::watch_entity_rows_event::Event;
 use crate::pb::{AttributeValue, EntityRow, NullableAttributeValue, WatchEntityRowsEvent};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use prost_reflect::DynamicMessage;
-use serde::ser::{SerializeSeq, SerializeStruct};
+use serde::ser::{SerializeSeq, SerializeStruct, SerializeStructVariant};
 use serde::{ser, Serialize, Serializer};
 use std::fmt::Debug;
 use std::iter;
@@ -53,41 +53,41 @@ impl<'a> Serialize for CustomFormat<'a, &Event> {
         let CustomFormat(event, metadata) = self;
         match event {
             Event::Added(added_event) => {
-                let mut state = serializer.serialize_struct("Added", 1)?;
+                let mut state = serializer.serialize_struct_variant("event", 0, "added", 1)?;
 
                 if let Some(row) = &added_event.entity_row {
-                    state.serialize_field("entity_row", &CustomFormat(row, metadata))?;
+                    state.serialize_field("entityRow", &CustomFormat(row, metadata))?;
                 } else {
-                    state.skip_field("entity_row")?;
+                    state.skip_field("entityRow")?;
                 }
 
                 state.end()
             }
             Event::Modified(modified_event) => {
-                let mut state = serializer.serialize_struct("Modified", 1)?;
+                let mut state = serializer.serialize_struct_variant("event", 1, "modified", 1)?;
 
                 if let Some(row) = &modified_event.entity_row {
-                    state.serialize_field("entity_row", &CustomFormat(row, metadata))?;
+                    state.serialize_field("entityRow", &CustomFormat(row, metadata))?;
                 } else {
-                    state.skip_field("entity_row")?;
+                    state.skip_field("entityRow")?;
                 }
 
                 state.end()
             }
             Event::Removed(removed_event) => {
-                let mut state = serializer.serialize_struct("Added", 1)?;
+                let mut state = serializer.serialize_struct_variant("event", 2, "added", 1)?;
 
                 if let Some(row) = &removed_event.entity_row {
-                    state.serialize_field("entity_row", &CustomFormat(row, metadata))?;
+                    state.serialize_field("entityRow", &CustomFormat(row, metadata))?;
                 } else {
-                    state.skip_field("entity_row")?;
+                    state.skip_field("entityRow")?;
                 }
 
                 state.end()
             }
             Event::Bookmark(bookmark_event) => {
-                let mut state = serializer.serialize_struct("Bookmark", 1)?;
-                state.serialize_field("entity_version", &bookmark_event.entity_version)?;
+                let mut state = serializer.serialize_struct_variant("event", 3, "bookmark", 1)?;
+                state.serialize_field("entityVersion", &bookmark_event.entity_version)?;
                 state.end()
             }
         }
