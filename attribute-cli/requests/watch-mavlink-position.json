@@ -1,0 +1,15 @@
+{
+  "query": {
+    "hasAttributeTypes": {
+      "attributeTypes": [
+        "mavlink/globalPosition"
+      ]
+    }
+  },
+  "attributeTypes": [
+    "@id",
+    "@symbolName",
+    "mavlink/globalPosition"
+  ],
+  "sendInitialEvents": true
+}

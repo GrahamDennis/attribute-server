@@ -6,17 +6,19 @@ mod pb;
 
 use crate::control_loop::control_loop;
 use crate::fmt::{wrap_watch_entity_rows_event, ColumnMetadata, EntityRowMetadata};
-use crate::mavlink::{mavlink_run, MavlinkArgs};
+use crate::mavlink::{mavlink_run, AttributeTypes, MavlinkArgs};
 use crate::pb::attribute_store_client::AttributeStoreClient;
+use crate::pb::attribute_value::AttributeValue;
 use crate::pb::{
-    CreateAttributeTypeRequest, PingRequest, QueryEntityRowsRequest, UpdateEntityRequest,
-    WatchEntitiesRequest, WatchEntityRowsRequest,
+    CreateAttributeTypeRequest, EntityQueryNode, PingRequest, QueryEntityRowsRequest,
+    UpdateEntityRequest, WatchEntitiesRequest, WatchEntityRowsRequest,
 };
 use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use prost_reflect::{DescriptorPool, ReflectMessage};
 use serde::Deserializer;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use thiserror::Error;
@@ -196,21 +198,94 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::WatchEntityRows { json } => {
             let request: WatchEntityRowsRequest = json::parse_from_json_argument(json)?;
-            // FIXME
-            let descriptor = DescriptorPool::decode(pb::mavlink::FILE_DESCRIPTOR_SET)?
-                .get_message_by_name("me.grahamdennis.attribute.mavlink.GlobalPosition")
-                .unwrap();
+
+            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
+
+            let protobuf_metadata_attribute_types = vec![
+                "@symbolName".to_string(),
+                AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
+                AttributeTypes::MessageName.as_str().to_string(),
+            ];
+            let file_descriptor_set_attribute_types = vec![
+                "@id".to_string(),
+                AttributeTypes::FileDescriptorSet.as_str().to_string(),
+            ];
+
+            let query_protobuf_metadata = QueryEntityRowsRequest {
+                root: Some(EntityQueryNode {
+                    query: Some(pb::entity_query_node::Query::HasAttributeTypes(
+                        pb::HasAttributeTypesNode {
+                            attribute_types: protobuf_metadata_attribute_types.clone(),
+                        },
+                    )),
+                }),
+                attribute_types: protobuf_metadata_attribute_types.clone(),
+            };
+
+            // attribute_type => (file_descriptor_set_entity_id, message_name)
+            let protobuf_metadatas: HashMap<String, (String, String)> = attribute_store_client
+                .query_entity_rows(query_protobuf_metadata)
+                .await?
+                .into_inner()
+                .rows
+                .into_iter()
+                .filter_map(|row| {
+                    let attribute_type = row.string_value(0)?.clone();
+                    let file_descriptor_set_entity_id = row.entity_id_value(1)?.clone();
+
+                    let message_name = row.string_value(2)?.clone();
+
+                    Some((
+                        attribute_type,
+                        (file_descriptor_set_entity_id, message_name),
+                    ))
+                })
+                .collect();
+
+            let file_descriptor_sets: HashMap<String, DescriptorPool> = attribute_store_client
+                .query_entity_rows(QueryEntityRowsRequest {
+                    root: Some(EntityQueryNode {
+                        query: Some(pb::entity_query_node::Query::HasAttributeTypes(
+                            pb::HasAttributeTypesNode {
+                                attribute_types: vec![AttributeTypes::FileDescriptorSet
+                                    .as_str()
+                                    .to_string()],
+                            },
+                        )),
+                    }),
+                    attribute_types: file_descriptor_set_attribute_types.clone(),
+                })
+                .await?
+                .into_inner()
+                .rows
+                .into_iter()
+                .filter_map(|row| {
+                    let entity_id = row.entity_id_value(0)?.clone();
+                    let file_descriptor_set_bytes = row.bytes_value(1)?;
+
+                    let descriptor_pool =
+                        DescriptorPool::decode(file_descriptor_set_bytes.as_slice()).ok()?;
+
+                    Some((entity_id, descriptor_pool))
+                })
+                .collect();
 
             let entity_row_metadata = EntityRowMetadata {
                 columns: request
                     .attribute_types
                     .iter()
                     .map(|attribute_type| {
-                        Some(ColumnMetadata::MessageDescriptor(descriptor.clone()))
+                        let (file_descriptor_set_entity_id, message_name) =
+                            protobuf_metadatas.get(attribute_type)?;
+
+                        let descriptor_pool =
+                            file_descriptor_sets.get(file_descriptor_set_entity_id)?;
+                        let message_descriptor =
+                            descriptor_pool.get_message_by_name(message_name)?;
+                        Some(ColumnMetadata::MessageDescriptor(message_descriptor))
                     })
                     .collect(),
             };
-            let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
                 .watch_entity_rows(request)
                 .await

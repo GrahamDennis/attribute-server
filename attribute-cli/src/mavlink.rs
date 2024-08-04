@@ -35,7 +35,7 @@ pub struct MavlinkArgs {
     component_id: ComponentId,
 }
 
-enum AttributeTypes {
+pub enum AttributeTypes {
     GlobalPosition,
     FileDescriptorSet,
     FileDescriptorSetRef,
@@ -43,7 +43,7 @@ enum AttributeTypes {
 }
 
 impl AttributeTypes {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             AttributeTypes::GlobalPosition => "mavlink/globalPosition",
             AttributeTypes::FileDescriptorSet => "pb/fileDescriptorSet",
@@ -171,36 +171,41 @@ impl MavlinkProcessor {
     async fn process_events(&self, node: &EdgeNode<V2>) -> anyhow::Result<()> {
         let mut events = node.events().unwrap();
         while let Some(event) = events.next().await {
-            match event {
-                Event::NewPeer(peer) => {
-                    println!("New MAVLink device joined the network: {:?}", peer);
-                }
-                Event::PeerLost(peer) => {
-                    println!("MAVLink device is no longer active: {:?}", peer);
-                }
-                Event::Frame(frame, callback) => {
-                    callback.broadcast(&frame).unwrap();
-                    if let Ok(message) = frame.decode::<DefaultDialect>() {
-                        log::debug!(
-                            "Received a message from {}:{}: {:?}",
-                            frame.system_id(),
-                            frame.component_id(),
-                            message
-                        );
-
-                        match message {
-                            Ardupilotmega::GlobalPositionInt(global_position_int) => {
-                                self.global_position_channel
-                                    .send((frame, global_position_int))?;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                Event::Invalid(..) => {}
-            }
+            self.process_event(event)?;
         }
 
+        Ok(())
+    }
+
+    fn process_event(&self, event: Event<V2>) -> anyhow::Result<()> {
+        match event {
+            Event::NewPeer(peer) => {
+                println!("New MAVLink device joined the network: {:?}", peer);
+            }
+            Event::PeerLost(peer) => {
+                println!("MAVLink device is no longer active: {:?}", peer);
+            }
+            Event::Frame(frame, callback) => {
+                callback.broadcast(&frame).unwrap();
+                if let Ok(message) = frame.decode::<DefaultDialect>() {
+                    log::debug!(
+                        "Received a message from {}:{}: {:?}",
+                        frame.system_id(),
+                        frame.component_id(),
+                        message
+                    );
+
+                    match message {
+                        Ardupilotmega::GlobalPositionInt(global_position_int) => {
+                            self.global_position_channel
+                                .send((frame, global_position_int))?;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Event::Invalid(..) => {}
+        }
         Ok(())
     }
 }
