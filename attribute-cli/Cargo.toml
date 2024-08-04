@@ -19,6 +19,7 @@ prost = "0.13.1"
 prost-reflect = { version = "0.14.0", features = ["serde", "derive"] }
 serde_path_to_error = "0.1.16"
 maviola = { version = "0.1.2", features = ["async", "ardupilotmega", "serde", "derive", "standard", "common"] }
+base64 = "0.22.1"
 
 [build-dependencies]
 prost-build = "0.13.1"

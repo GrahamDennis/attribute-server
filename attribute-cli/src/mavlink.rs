@@ -179,6 +179,7 @@ impl MavlinkProcessor {
                     println!("MAVLink device is no longer active: {:?}", peer);
                 }
                 Event::Frame(frame, callback) => {
+                    callback.broadcast(&frame).unwrap();
                     if let Ok(message) = frame.decode::<DefaultDialect>() {
                         log::debug!(
                             "Received a message from {}:{}: {:?}",
@@ -186,8 +187,6 @@ impl MavlinkProcessor {
                             frame.component_id(),
                             message
                         );
-
-                        callback.broadcast(&frame).unwrap();
 
                         match message {
                             Ardupilotmega::GlobalPositionInt(global_position_int) => {

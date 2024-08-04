@@ -1,5 +1,5 @@
 use prost_reflect::{DynamicMessage, ReflectMessage, SerializeOptions};
-use serde::Deserializer;
+use serde::{Deserializer, Serialize};
 use serde_path_to_error::Track;
 use std::fs::File;
 use std::io::BufReader;
@@ -14,6 +14,19 @@ pub fn to_json<T: ReflectMessage>(message: &T) -> anyhow::Result<String> {
     message
         .transcode_to_dynamic()
         .serialize_with_options(wrapped_serializer, &options)
+        .map_err(|err| serde_path_to_error::Error::new(track.path(), err))?;
+
+    Ok(String::from_utf8(buffer)?)
+}
+
+pub fn serialize_to_json<T: Serialize>(value: &T) -> anyhow::Result<String> {
+    let mut buffer = vec![];
+    let mut serializer = serde_json::Serializer::new(&mut buffer);
+    let mut track = Track::new();
+    let wrapped_serializer = serde_path_to_error::Serializer::new(&mut serializer, &mut track);
+
+    value
+        .serialize(wrapped_serializer)
         .map_err(|err| serde_path_to_error::Error::new(track.path(), err))?;
 
     Ok(String::from_utf8(buffer)?)

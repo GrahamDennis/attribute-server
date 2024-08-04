@@ -1,9 +1,11 @@
 mod control_loop;
+mod fmt;
 mod json;
 mod mavlink;
 mod pb;
 
 use crate::control_loop::control_loop;
+use crate::fmt::{wrap_watch_entity_rows_event, EntityRowMetadata};
 use crate::mavlink::{mavlink_run, MavlinkArgs};
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::{
@@ -195,14 +197,30 @@ async fn main() -> anyhow::Result<()> {
         Commands::WatchEntityRows { json } => {
             let request: WatchEntityRowsRequest = json::parse_from_json_argument(json)?;
 
+            let entity_row_metadata = EntityRowMetadata {
+                columns: request
+                    .attribute_types
+                    .iter()
+                    .map(|attribute_type| None)
+                    .collect(),
+            };
             let mut attribute_store_client = create_attribute_store_client(&cli.endpoint).await?;
             let response = attribute_store_client
                 .watch_entity_rows(request)
                 .await
                 .map_err(StatusError::from)?;
+
             let mut stream = response.into_inner();
             while let Some(event) = stream.message().await? {
-                println!("{}", json::to_json(&event)?);
+                println!(
+                    "{}",
+                    json::serialize_to_json(&wrap_watch_entity_rows_event(
+                        &event,
+                        &entity_row_metadata
+                    ))?
+                );
+
+                // println!("{}", json::to_json(&event)?);
             }
 
             Ok(())
