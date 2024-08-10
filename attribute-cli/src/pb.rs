@@ -66,6 +66,12 @@ impl AttributeValue {
             )),
         }
     }
+
+    pub fn from_bytes(value: Vec<u8>) -> Self {
+        Self {
+            attribute_value: Some(attribute_value::AttributeValue::BytesValue(value)),
+        }
+    }
 }
 
 pub mod mavlink {

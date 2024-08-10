@@ -3,11 +3,11 @@ use crate::pb;
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::{AttributeValue, EntityLocator, UpdateEntityRequest};
 use prost_reflect::ReflectMessage;
-use std::any::TypeId;
 use tonic::transport::Channel;
 
 pub trait TypedAttribute {
     fn attribute_name() -> &'static str;
+    fn as_bytes(&self) -> Vec<u8>;
 }
 
 impl AttributeStoreClient<Channel> {
@@ -37,5 +37,27 @@ impl AttributeStoreClient<Channel> {
             ],
         };
         self.update_entity(create_global_position_request).await
+    }
+
+    pub async fn simple_update_entity<T: TypedAttribute>(
+        &mut self,
+        symbol_id: &str,
+        value: T,
+    ) -> Result<tonic::Response<pb::UpdateEntityResponse>, tonic::Status> {
+        let attribute_name = T::attribute_name();
+        self.update_entity(pb::UpdateEntityRequest {
+            entity_locator: Some(EntityLocator::from_symbol(attribute_name)),
+            attributes_to_update: vec![
+                pb::AttributeToUpdate {
+                    attribute_type: "@symbolName".to_string(),
+                    attribute_value: Some(AttributeValue::from_string(symbol_id)),
+                },
+                pb::AttributeToUpdate {
+                    attribute_type: T::attribute_name().to_string(),
+                    attribute_value: Some(AttributeValue::from_bytes(value.as_bytes())),
+                },
+            ],
+        })
+        .await
     }
 }

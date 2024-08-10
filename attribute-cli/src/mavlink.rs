@@ -51,11 +51,19 @@ impl TypedAttribute for GlobalPosition {
     fn attribute_name() -> &'static str {
         "mavlink/globalPosition"
     }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        self.encode_to_vec()
+    }
 }
 
 impl TypedAttribute for MissionCurrent {
     fn attribute_name() -> &'static str {
         "mavlink/missionCurrent"
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        self.encode_to_vec()
     }
 }
 
@@ -347,37 +355,13 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
             Ok((frame, global_position_int)) = global_position_rx.recv() => {
             let global_position: pb::mavlink::GlobalPosition = global_position_int.into();
                 let symbol_id = symbol_for_node(&frame);
-                let response = attribute_store_client.update_entity(pb::UpdateEntityRequest {
-                    entity_locator: create_locator(&symbol_id),
-                    attributes_to_update: vec![
-                        pb::AttributeToUpdate {
-                            attribute_type: "@symbolName".to_string(),
-                            attribute_value: attribute_value_string(&symbol_id)
-                        },
-                        pb::AttributeToUpdate {
-                            attribute_type: AttributeTypes::GlobalPosition.as_str().to_string(),
-                            attribute_value: attribute_value_bytes(global_position.encode_to_vec()),
-                        }
-                    ],
-                }).await?;
+                let response = attribute_store_client.simple_update_entity(&symbol_id, global_position).await?;
             }
             Ok((frame, mission_current)) = mission_current_rx.recv() => {
                 let mission_current_proto: pb::mavlink::MissionCurrent = mission_current.into();
                 let symbol_id = symbol_for_node(&frame);
 
-                    let response = attribute_store_client.update_entity(pb::UpdateEntityRequest {
-                    entity_locator: create_locator(&symbol_id),
-                    attributes_to_update: vec![
-                        pb::AttributeToUpdate {
-                            attribute_type: "@symbolName".to_string(),
-                            attribute_value: attribute_value_string(&symbol_id)
-                        },
-                        pb::AttributeToUpdate {
-                            attribute_type: AttributeTypes::MissionCurrent.as_str().to_string(),
-                            attribute_value: attribute_value_bytes(mission_current_proto.encode_to_vec()),
-                        }
-                    ],
-                }).await?;
+                let response = attribute_store_client.simple_update_entity(&symbol_id, mission_current_proto).await?;
             }
                 else => {
                     break;
