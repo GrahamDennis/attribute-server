@@ -45,9 +45,8 @@ impl AttributeStoreClient<Channel> {
         // FIXME: This should take a tuple of N different TypedAttributes
         value: T,
     ) -> Result<tonic::Response<pb::UpdateEntityResponse>, tonic::Status> {
-        let attribute_name = T::attribute_name();
         self.update_entity(pb::UpdateEntityRequest {
-            entity_locator: Some(EntityLocator::from_symbol(attribute_name)),
+            entity_locator: Some(EntityLocator::from_symbol(symbol_id)),
             attributes_to_update: vec![
                 pb::AttributeToUpdate {
                     attribute_type: "@symbolName".to_string(),
