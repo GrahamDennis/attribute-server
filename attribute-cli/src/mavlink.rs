@@ -1,3 +1,6 @@
+use crate::attributes::TypedAttribute;
+use crate::pb::attribute_store_client::AttributeStoreClient;
+use crate::pb::mavlink::{GlobalPosition, MissionCurrent};
 use crate::pb::{
     AttributeType, AttributeValue, CreateAttributeTypeRequest, CreateAttributeTypeResponse, Entity,
     EntityLocator, UpdateEntityRequest, ValueType,
@@ -20,6 +23,7 @@ use std::sync::LazyLock;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
 use tonic::codegen::tokio_stream::Stream;
+use tonic::transport::Channel;
 use tonic::{Code, Response, Status};
 use tracing::log;
 
@@ -37,15 +41,29 @@ pub struct MavlinkArgs {
 
 pub enum AttributeTypes {
     GlobalPosition,
+    MissionCurrent,
     FileDescriptorSet,
     FileDescriptorSetRef,
     MessageName,
+}
+
+impl TypedAttribute for GlobalPosition {
+    fn attribute_name() -> &'static str {
+        "mavlink/globalPosition"
+    }
+}
+
+impl TypedAttribute for MissionCurrent {
+    fn attribute_name() -> &'static str {
+        "mavlink/missionCurrent"
+    }
 }
 
 impl AttributeTypes {
     pub fn as_str(&self) -> &'static str {
         match self {
             AttributeTypes::GlobalPosition => "mavlink/globalPosition",
+            AttributeTypes::MissionCurrent => "mavlink/missionCurrent",
             AttributeTypes::FileDescriptorSet => "pb/fileDescriptorSet",
             AttributeTypes::FileDescriptorSetRef => "pb/fileDescriptorSetRef",
             AttributeTypes::MessageName => "pb/messageName",
@@ -88,6 +106,12 @@ static ATTRIBUTE_TYPES: LazyLock<Vec<CreateAttributeTypeRequest>> = LazyLock::ne
         CreateAttributeTypeRequest {
             attribute_type: Some(AttributeType {
                 symbol: AttributeTypes::GlobalPosition.as_str().to_string(),
+                value_type: ValueType::Bytes.into(),
+            }),
+        },
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: AttributeTypes::MissionCurrent.as_str().to_string(),
                 value_type: ValueType::Bytes.into(),
             }),
         },
@@ -156,15 +180,32 @@ impl From<messages::GlobalPositionInt> for pb::mavlink::GlobalPosition {
     }
 }
 
+impl From<messages::MissionCurrent> for pb::mavlink::MissionCurrent {
+    fn from(value: messages::MissionCurrent) -> Self {
+        MissionCurrent {
+            sequence: value.seq as u32,
+            total_mission_items: value.total as u32,
+            mission_state: value.mission_state as i32,
+            mission_mode: value.mission_mode as i32,
+            mission_id: value.mission_id,
+            fence_id: value.fence_id,
+            rally_points_id: value.rally_points_id,
+        }
+    }
+}
+
 struct MavlinkProcessor {
-    global_position_channel: Sender<(Frame<V2>, messages::GlobalPositionInt)>,
+    global_position_tx: Sender<(Frame<V2>, messages::GlobalPositionInt)>,
+    mission_current_tx: Sender<(Frame<V2>, messages::MissionCurrent)>,
 }
 
 impl MavlinkProcessor {
     fn new() -> Self {
-        let (tx, _) = broadcast::channel(16);
+        let (global_position_tx, _) = broadcast::channel(16);
+        let (mission_current_tx, _) = broadcast::channel(16);
         MavlinkProcessor {
-            global_position_channel: tx,
+            global_position_tx,
+            mission_current_tx,
         }
     }
 
@@ -197,8 +238,10 @@ impl MavlinkProcessor {
 
                     match message {
                         Ardupilotmega::GlobalPositionInt(global_position_int) => {
-                            self.global_position_channel
-                                .send((frame, global_position_int))?;
+                            self.global_position_tx.send((frame, global_position_int))?;
+                        }
+                        Ardupilotmega::MissionCurrent(mission_current) => {
+                            self.mission_current_tx.send((frame, mission_current))?;
                         }
                         _ => {}
                     }
@@ -208,6 +251,10 @@ impl MavlinkProcessor {
         }
         Ok(())
     }
+}
+
+fn symbol_for_node(frame: &Frame<V2>) -> String {
+    format!("mavlink/id/{}:{}", frame.system_id(), frame.component_id())
 }
 
 pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
@@ -257,31 +304,11 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
             .ok_or(anyhow::format_err!("Failed to create mavlink fdset entity"))?;
         let mavlink_fdset_entity_id = mavlink_fdset_entity.entity_id;
 
-        let create_global_position_request = UpdateEntityRequest {
-            entity_locator: create_locator(AttributeTypes::GlobalPosition.as_str()),
-            attributes_to_update: vec![
-                pb::AttributeToUpdate {
-                    attribute_type: "@symbolName".to_string(),
-                    attribute_value: attribute_value_string(
-                        AttributeTypes::GlobalPosition.as_str(),
-                    ),
-                },
-                pb::AttributeToUpdate {
-                    attribute_type: AttributeTypes::MessageName.as_str().to_string(),
-                    attribute_value: attribute_value_string(
-                        pb::mavlink::GlobalPosition::default()
-                            .descriptor()
-                            .full_name(),
-                    ),
-                },
-                pb::AttributeToUpdate {
-                    attribute_type: AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
-                    attribute_value: attribute_value_entity_ref(mavlink_fdset_entity_id),
-                },
-            ],
-        };
-        let _ = attribute_store_client
-            .update_entity(create_global_position_request)
+        attribute_store_client
+            .update_protobuf_attribute_type::<GlobalPosition>(&mavlink_fdset_entity_id)
+            .await?;
+        attribute_store_client
+            .update_protobuf_attribute_type::<MissionCurrent>(&mavlink_fdset_entity_id)
             .await?;
     }
 
@@ -310,7 +337,8 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
     node.activate().await.unwrap();
 
     let mavlink_processor = MavlinkProcessor::new();
-    let mut global_position_rx = mavlink_processor.global_position_channel.subscribe();
+    let mut global_position_rx = mavlink_processor.global_position_tx.subscribe();
+    let mut mission_current_rx = mavlink_processor.mission_current_tx.subscribe();
 
     let join_handle = tokio::spawn(async move { mavlink_processor.process_events(&node).await });
 
@@ -318,7 +346,7 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         tokio::select! {
             Ok((frame, global_position_int)) = global_position_rx.recv() => {
             let global_position: pb::mavlink::GlobalPosition = global_position_int.into();
-                let symbol_id = format!("mavlink/id/{}:{}", frame.system_id(), frame.component_id());
+                let symbol_id = symbol_for_node(&frame);
                 let response = attribute_store_client.update_entity(pb::UpdateEntityRequest {
                     entity_locator: create_locator(&symbol_id),
                     attributes_to_update: vec![
@@ -333,6 +361,24 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
                     ],
                 }).await?;
             }
+            Ok((frame, mission_current)) = mission_current_rx.recv() => {
+                let mission_current_proto: pb::mavlink::MissionCurrent = mission_current.into();
+                let symbol_id = symbol_for_node(&frame);
+
+                    let response = attribute_store_client.update_entity(pb::UpdateEntityRequest {
+                    entity_locator: create_locator(&symbol_id),
+                    attributes_to_update: vec![
+                        pb::AttributeToUpdate {
+                            attribute_type: "@symbolName".to_string(),
+                            attribute_value: attribute_value_string(&symbol_id)
+                        },
+                        pb::AttributeToUpdate {
+                            attribute_type: AttributeTypes::MissionCurrent.as_str().to_string(),
+                            attribute_value: attribute_value_bytes(mission_current_proto.encode_to_vec()),
+                        }
+                    ],
+                }).await?;
+            }
                 else => {
                     break;
                 }
@@ -341,5 +387,33 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
 
     join_handle.abort();
 
+    Ok(())
+}
+
+async fn update_proto_metadata<T: ReflectMessage + Default>(
+    attribute_store_client: &mut AttributeStoreClient<Channel>,
+    attribute_type: AttributeTypes,
+    mavlink_fdset_entity_id: String,
+) -> anyhow::Result<()> {
+    let create_global_position_request = UpdateEntityRequest {
+        entity_locator: create_locator(attribute_type.as_str()),
+        attributes_to_update: vec![
+            pb::AttributeToUpdate {
+                attribute_type: "@symbolName".to_string(),
+                attribute_value: attribute_value_string(AttributeTypes::GlobalPosition.as_str()),
+            },
+            pb::AttributeToUpdate {
+                attribute_type: AttributeTypes::MessageName.as_str().to_string(),
+                attribute_value: attribute_value_string(T::default().descriptor().full_name()),
+            },
+            pb::AttributeToUpdate {
+                attribute_type: AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
+                attribute_value: attribute_value_entity_ref(mavlink_fdset_entity_id),
+            },
+        ],
+    };
+    let _ = attribute_store_client
+        .update_entity(create_global_position_request)
+        .await?;
     Ok(())
 }

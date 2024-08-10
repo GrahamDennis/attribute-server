@@ -1,3 +1,4 @@
+mod attributes;
 mod control_loop;
 mod fmt;
 mod json;

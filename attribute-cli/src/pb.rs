@@ -37,6 +37,37 @@ impl EntityRow {
     }
 }
 
+impl EntityLocator {
+    pub fn from_symbol(symbol: impl ToString) -> Self {
+        Self {
+            locator: Some(entity_locator::Locator::Symbol(symbol.to_string())),
+        }
+    }
+    pub fn from_entity_id(entity_id: impl ToString) -> Self {
+        Self {
+            locator: Some(entity_locator::Locator::EntityId(entity_id.to_string())),
+        }
+    }
+}
+
+impl AttributeValue {
+    pub fn from_string(value: impl ToString) -> Self {
+        Self {
+            attribute_value: Some(attribute_value::AttributeValue::StringValue(
+                value.to_string(),
+            )),
+        }
+    }
+
+    pub fn from_entity_id(value: impl ToString) -> Self {
+        Self {
+            attribute_value: Some(attribute_value::AttributeValue::EntityIdValue(
+                value.to_string(),
+            )),
+        }
+    }
+}
+
 pub mod mavlink {
     pub const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("file_descriptor_set.mavlink");

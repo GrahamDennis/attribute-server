@@ -13,3 +13,27 @@ message GlobalPosition {
   float velocity_z_m_s = 8;
   float heading_deg = 9;
 }
+
+message MissionCurrent {
+  uint32 sequence = 1;
+  uint32 total_mission_items = 2;
+  MissionState mission_state = 3;
+  MissionMode mission_mode = 4;
+  uint32 mission_id = 5;
+  uint32 fence_id = 6;
+  uint32 rally_points_id = 7;
+
+  enum MissionState {
+    MISSION_STATE_UNKNOWN = 0;
+    MISSION_STATE_NO_MISSION = 1;
+    MISSION_STATE_NOT_STARTED = 2;
+    MISSION_STATE_ACTIVE = 3;
+    MISSION_STATE_PAUSED = 4;
+    MISSION_STATE_COMPLETE = 5;
+  }
+  enum MissionMode {
+    MISSION_MODE_UNKNOWN = 0;
+    MISSION_MODE_IN_MISSION_MODE = 1;
+    MISSION_MODE_SUSPENDED = 2;
+  }
+}
