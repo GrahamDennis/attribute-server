@@ -9,7 +9,6 @@ use crate::control_loop::control_loop;
 use crate::fmt::{wrap_watch_entity_rows_event, ColumnMetadata, EntityRowMetadata};
 use crate::mavlink::{mavlink_run, AttributeTypes, MavlinkArgs};
 use crate::pb::attribute_store_client::AttributeStoreClient;
-use crate::pb::attribute_value::AttributeValue;
 use crate::pb::{
     CreateAttributeTypeRequest, EntityQueryNode, PingRequest, QueryEntityRowsRequest,
     UpdateEntityRequest, WatchEntitiesRequest, WatchEntityRowsRequest,
@@ -18,12 +17,10 @@ use anyhow::format_err;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use prost_reflect::{DescriptorPool, ReflectMessage};
-use serde::Deserializer;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::future::Future;
 use thiserror::Error;
-use tonic::codegen::tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Status;
 use tonic_types::{ErrorDetail, StatusExt};

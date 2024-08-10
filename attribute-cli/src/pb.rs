@@ -1,5 +1,3 @@
-use crate::pb;
-
 pub const FILE_DESCRIPTOR_SET: &[u8] =
     tonic::include_file_descriptor_set!("file_descriptor_set.attribute");
 
@@ -38,11 +36,13 @@ impl EntityRow {
 }
 
 impl EntityLocator {
+    #[allow(dead_code)]
     pub fn from_symbol(symbol: impl ToString) -> Self {
         Self {
             locator: Some(entity_locator::Locator::Symbol(symbol.to_string())),
         }
     }
+    #[allow(dead_code)]
     pub fn from_entity_id(entity_id: impl ToString) -> Self {
         Self {
             locator: Some(entity_locator::Locator::EntityId(entity_id.to_string())),
@@ -51,6 +51,7 @@ impl EntityLocator {
 }
 
 impl AttributeValue {
+    #[allow(dead_code)]
     pub fn from_string(value: impl ToString) -> Self {
         Self {
             attribute_value: Some(attribute_value::AttributeValue::StringValue(
@@ -59,6 +60,7 @@ impl AttributeValue {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_entity_id(value: impl ToString) -> Self {
         Self {
             attribute_value: Some(attribute_value::AttributeValue::EntityIdValue(
@@ -67,6 +69,7 @@ impl AttributeValue {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_bytes(value: Vec<u8>) -> Self {
         Self {
             attribute_value: Some(attribute_value::AttributeValue::BytesValue(value)),

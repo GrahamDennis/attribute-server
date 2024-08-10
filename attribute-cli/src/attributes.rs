@@ -42,6 +42,7 @@ impl AttributeStoreClient<Channel> {
     pub async fn simple_update_entity<T: TypedAttribute>(
         &mut self,
         symbol_id: &str,
+        // FIXME: This should take a tuple of N different TypedAttributes
         value: T,
     ) -> Result<tonic::Response<pb::UpdateEntityResponse>, tonic::Status> {
         let attribute_name = T::attribute_name();

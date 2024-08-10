@@ -3,7 +3,7 @@ use crate::pb::watch_entity_rows_event::Event;
 use crate::pb::{AttributeValue, EntityRow, NullableAttributeValue, WatchEntityRowsEvent};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use prost_reflect::{DynamicMessage, SerializeOptions};
-use serde::ser::{SerializeSeq, SerializeStruct, SerializeStructVariant};
+use serde::ser::{SerializeSeq, SerializeStruct};
 use serde::{ser, Serialize, Serializer};
 use std::fmt::Debug;
 use std::iter;

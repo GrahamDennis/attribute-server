@@ -1,9 +1,8 @@
 use crate::attributes::TypedAttribute;
-use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::mavlink::{GlobalPosition, MissionCurrent};
 use crate::pb::{
-    AttributeType, AttributeValue, CreateAttributeTypeRequest, CreateAttributeTypeResponse, Entity,
-    EntityLocator, UpdateEntityRequest, ValueType,
+    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
+    ValueType,
 };
 use crate::{pb, Cli};
 use clap::Args;
@@ -11,20 +10,15 @@ use maviola::asnc::node::Event;
 use maviola::asnc::prelude::{EdgeNode, ReceiveEvent, StreamExt};
 use maviola::dialects::Ardupilotmega;
 use maviola::prelude::default_dialect::messages;
-use maviola::prelude::{
-    default_dialect, CallbackApi, DefaultDialect, Frame, Network, Node, TcpClient, TcpServer,
-};
+use maviola::prelude::{CallbackApi, DefaultDialect, Frame, Network, Node, TcpClient, TcpServer};
 use maviola::protocol::{ComponentId, MavLinkId, SystemId, V2};
 use prost::Message;
-use prost_reflect::ReflectMessage;
 use std::convert::Into;
 use std::string::ToString;
 use std::sync::LazyLock;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
-use tonic::codegen::tokio_stream::Stream;
-use tonic::transport::Channel;
-use tonic::{Code, Response, Status};
+use tonic::Code;
 use tracing::log;
 
 #[derive(Args)]
@@ -125,36 +119,6 @@ static ATTRIBUTE_TYPES: LazyLock<Vec<CreateAttributeTypeRequest>> = LazyLock::ne
         },
     ]
 });
-
-fn create_locator(symbol: impl ToString) -> Option<EntityLocator> {
-    Some(EntityLocator {
-        locator: Some(pb::entity_locator::Locator::Symbol(symbol.to_string())),
-    })
-}
-
-fn attribute_value_bytes(bytes: impl Into<Vec<u8>>) -> Option<AttributeValue> {
-    Some(AttributeValue {
-        attribute_value: Some(pb::attribute_value::AttributeValue::BytesValue(
-            bytes.into(),
-        )),
-    })
-}
-
-fn attribute_value_string(value: impl ToString) -> Option<AttributeValue> {
-    Some(AttributeValue {
-        attribute_value: Some(pb::attribute_value::AttributeValue::StringValue(
-            value.to_string(),
-        )),
-    })
-}
-
-fn attribute_value_entity_ref(entity_id: String) -> Option<AttributeValue> {
-    Some(AttributeValue {
-        attribute_value: Some(pb::attribute_value::AttributeValue::EntityIdValue(
-            entity_id,
-        )),
-    })
-}
 
 fn from_mavlink_deg_e7(degrees: i32) -> f64 {
     f64::from(degrees) / 1e7
@@ -289,17 +253,21 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
 
     {
         let create_mavlink_fdset_request = UpdateEntityRequest {
-            entity_locator: create_locator(EntityNames::MavlinkFileDescriptorSet.as_str()),
+            entity_locator: Some(EntityLocator::from_symbol(
+                EntityNames::MavlinkFileDescriptorSet.as_str(),
+            )),
             attributes_to_update: vec![
                 pb::AttributeToUpdate {
                     attribute_type: "@symbolName".to_string(),
-                    attribute_value: attribute_value_string(
+                    attribute_value: Some(AttributeValue::from_string(
                         EntityNames::MavlinkFileDescriptorSet.as_str(),
-                    ),
+                    )),
                 },
                 pb::AttributeToUpdate {
                     attribute_type: AttributeTypes::FileDescriptorSet.as_str().to_string(),
-                    attribute_value: attribute_value_bytes(pb::mavlink::FILE_DESCRIPTOR_SET),
+                    attribute_value: Some(AttributeValue::from_bytes(
+                        pb::mavlink::FILE_DESCRIPTOR_SET.to_vec(),
+                    )),
                 },
             ],
         };
@@ -371,33 +339,5 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
 
     join_handle.abort();
 
-    Ok(())
-}
-
-async fn update_proto_metadata<T: ReflectMessage + Default>(
-    attribute_store_client: &mut AttributeStoreClient<Channel>,
-    attribute_type: AttributeTypes,
-    mavlink_fdset_entity_id: String,
-) -> anyhow::Result<()> {
-    let create_global_position_request = UpdateEntityRequest {
-        entity_locator: create_locator(attribute_type.as_str()),
-        attributes_to_update: vec![
-            pb::AttributeToUpdate {
-                attribute_type: "@symbolName".to_string(),
-                attribute_value: attribute_value_string(AttributeTypes::GlobalPosition.as_str()),
-            },
-            pb::AttributeToUpdate {
-                attribute_type: AttributeTypes::MessageName.as_str().to_string(),
-                attribute_value: attribute_value_string(T::default().descriptor().full_name()),
-            },
-            pb::AttributeToUpdate {
-                attribute_type: AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
-                attribute_value: attribute_value_entity_ref(mavlink_fdset_entity_id),
-            },
-        ],
-    };
-    let _ = attribute_store_client
-        .update_entity(create_global_position_request)
-        .await?;
     Ok(())
 }
