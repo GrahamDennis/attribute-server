@@ -4,14 +4,14 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-thiserror = "1.0.61"
-regex = "1.10.5"
-async-trait = "0.1.80"
-tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
-tracing = "0.1.40"
-log = "0.4.22"
+thiserror.workspace = true
+regex.workspace = true
+async-trait.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tracing.workspace = true
+log.workspace = true
 parking_lot = "0.12.3"
-garde = { version = "0.20.0", features = ["derive", "regex"] }
+garde = { workspace = true, features = ["derive", "regex"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"

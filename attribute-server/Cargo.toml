@@ -4,21 +4,21 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-tonic = "0.12.1"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
-tower = { version = "0.4.13" , features = ["timeout"] }
-anyhow = "1.0.86"
+tonic.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tower = { version = "0.5.1" , features = ["timeout"] }
+anyhow.workspace = true
 attribute-store = { version = "0.0.0", path = "../attribute-store" }
-thiserror = "1.0.61"
+thiserror.workspace = true
 base64 = "0.22.1"
-prost = "0.13.1"
-tonic-types = "0.12.1"
-log = "0.4.22"
-garde = { version = "0.20.0", features = ["derive", "regex"] }
+prost.workspace = true
+tonic-types = "0.12.2"
+log.workspace = true
+garde = { workspace = true, features = ["derive", "regex"] }
 parking_lot = "0.12.3"
-tokio-stream = { version = "0.1.15", features = ["sync"] }
+tokio-stream = { version = "0.1.16", features = ["sync"] }
 
 [build-dependencies]
 tonic-build = "0.12.1"

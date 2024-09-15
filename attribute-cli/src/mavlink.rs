@@ -167,6 +167,8 @@ impl From<messages::MissionCurrent> for pb::mavlink::MissionCurrent {
 }
 
 struct MavlinkProcessor {
+    // FIXME: This isn't scalable; we need to support subscribing to streams of arbitrary message types
+    // or a one-shot response with a timeout
     global_position_tx: Sender<(Frame<V2>, messages::GlobalPositionInt)>,
     mission_current_tx: Sender<(Frame<V2>, messages::MissionCurrent)>,
 }
@@ -306,11 +308,10 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         .id(MavLinkId::new(args.system_id, args.component_id))
         .connection(network)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
     // Activate node to start sending heartbeats
-    node.activate().await.unwrap();
+    node.activate().await?;
 
     let mavlink_processor = MavlinkProcessor::new();
     let mut global_position_rx = mavlink_processor.global_position_tx.subscribe();
@@ -341,3 +342,7 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+// async fn fetch_mission() -> anyhow::Result<()> {
+//
+// }

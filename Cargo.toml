@@ -5,3 +5,16 @@ members = [
     "attribute-cli",
     "attribute-store",
 ]
+
+[workspace.dependencies]
+thiserror = "1.0.61"
+anyhow = "1.0.86"
+regex = "1.10.5"
+async-trait = "0.1.80"
+tokio = { version = "1.38.0" }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+log = "0.4.22"
+garde = {version = "0.20.0" }
+tonic = "0.12.1"
+prost = "0.13.1"
