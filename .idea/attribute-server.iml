@@ -6,6 +6,7 @@
       <sourceFolder url="file://$MODULE_DIR$/attribute-server/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/attribute-cli/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/attribute-store/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ardupilot/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

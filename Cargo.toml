@@ -4,6 +4,7 @@ members = [
     "attribute-server",
     "attribute-cli",
     "attribute-store",
+    "ardupilot",
 ]
 
 [workspace.dependencies]

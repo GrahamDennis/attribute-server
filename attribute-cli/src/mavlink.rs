@@ -201,7 +201,7 @@ impl MavlinkProcessor {
                 println!("MAVLink device is no longer active: {:?}", peer);
             }
             Event::Frame(frame, callback) => {
-                callback.broadcast(&frame).unwrap();
+                callback.broadcast(&frame)?;
                 if let Ok(message) = frame.decode::<DefaultDialect>() {
                     log::debug!(
                         "Received a message from {}:{}: {:?}",

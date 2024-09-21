@@ -1,0 +1,15 @@
+[package]
+name = "ardupilot"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+mavio = "0.2.6"
+thiserror.workspace = true
+tracing = { workspace = true, features = ["log"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio-util = { version = "0.7.12", features = ["codec"] }
+
+anyhow.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+bytes = "1.7.1"
