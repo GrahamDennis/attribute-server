@@ -324,13 +324,13 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
             Ok((frame, global_position_int)) = global_position_rx.recv() => {
             let global_position: pb::mavlink::GlobalPosition = global_position_int.into();
                 let symbol_id = symbol_for_node(&frame);
-                let response = attribute_store_client.simple_update_entity(&symbol_id, global_position).await?;
+                let _response = attribute_store_client.simple_update_entity(&symbol_id, global_position).await?;
             }
             Ok((frame, mission_current)) = mission_current_rx.recv() => {
                 let mission_current_proto: pb::mavlink::MissionCurrent = mission_current.into();
                 let symbol_id = symbol_for_node(&frame);
 
-                let response = attribute_store_client.simple_update_entity(&symbol_id, mission_current_proto).await?;
+                let _response = attribute_store_client.simple_update_entity(&symbol_id, mission_current_proto).await?;
             }
                 else => {
                     break;

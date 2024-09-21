@@ -1,13 +1,10 @@
 use bytes::{Buf, BytesMut};
-use mavio::protocol::{MavLinkVersion, MavSTX};
-use mavio::{protocol, Receiver};
-use protocol::MaybeVersioned;
+use mavio::protocol::{MavLinkVersion, MavSTX, MaybeVersioned};
+use mavio::Receiver;
 use std::io::Cursor;
 use tokio_util::codec::Decoder;
 
 struct MavlinkDecoder<V: MaybeVersioned> {}
-
-const MAX: usize = 8 * 1024 * 1024;
 
 fn find_frame_start<V: MaybeVersioned>(src: &BytesMut) -> Option<(usize, MavLinkVersion)> {
     for (idx, &byte) in src.iter().enumerate() {

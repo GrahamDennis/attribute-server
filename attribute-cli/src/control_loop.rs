@@ -5,7 +5,7 @@ use crate::{Cli, StatusError};
 
 // See the Bevy query system for a nice way of structuring reading queries.
 // Bevy defers updates via 'commands', which is more or less what we need to do here as well.
-async fn control_loop_iteration(query: &[()]) -> anyhow::Result<()> {
+async fn control_loop_iteration(_query: &[()]) -> anyhow::Result<()> {
     Ok(())
 }
 
