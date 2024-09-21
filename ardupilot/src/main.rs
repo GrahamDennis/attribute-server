@@ -3,7 +3,6 @@ use mavio::dialects::Ardupilotmega;
 use mavio::protocol::V2;
 use mavio::Frame;
 use std::net::SocketAddr;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
@@ -22,7 +21,7 @@ struct ConnectionAddr {
 }
 
 impl ConnectionAddr {
-    fn get(stream: &TcpStream) -> Result<ConnectionAddr, io::Error> {
+    fn create(stream: &TcpStream) -> Result<ConnectionAddr, std::io::Error> {
         Ok(ConnectionAddr {
             local_addr: stream.local_addr()?,
             peer_addr: stream.peer_addr()?,
@@ -57,21 +56,26 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn accept(listener: TcpListener, tx: Sender<SourcedFrame<V2>>) -> Result<(), io::Error> {
+async fn accept(listener: TcpListener, tx: Sender<SourcedFrame<V2>>) -> Result<(), std::io::Error> {
     loop {
-        let (socket, socket_addr) = listener.accept().await?;
+        let (socket, peer_addr) = listener.accept().await?;
+        tracing::info!(%peer_addr, "Received connection");
         let tx_clone = tx.clone();
         // A new task is spawned for each inbound socket. The socket is
         // moved to the new task and processed there.
-        tokio::spawn(async move { process(socket, tx_clone).await });
+        tokio::spawn(process(socket, tx_clone));
     }
 }
 
+#[tracing::instrument(skip_all, fields(connection_addr))]
 async fn process(
     mut socket: TcpStream,
     channel_tx: Sender<SourcedFrame<V2>>,
-) -> Result<(), io::Error> {
-    let connection_addr = ConnectionAddr::get(&socket)?;
+) -> Result<(), std::io::Error> {
+    let connection_addr = ConnectionAddr::create(&socket)?;
+    tracing::Span::current().record("connection_addr", format!("{connection_addr:?}"));
+    tracing::info!("Processing connection");
+
     let codec = codec::MavlinkCodec::<V2>::new();
     let (reader, writer) = socket.split();
     let mut framed_reader = FramedRead::new(reader, codec);
@@ -82,7 +86,11 @@ async fn process(
     loop {
         tokio::select! {
             socket_result = framed_reader.next() => {
-                let frame = socket_result.unwrap()?;
+                let Some(frame_result) = socket_result else {
+                    log::info!("Disconnected");
+                    return Ok(());
+                };
+                let frame = frame_result?;
                 if let Ok(message) = frame.decode::<Ardupilotmega>() {
                     log::debug!(
                         "Received a message from {}:{}: {:?}",
@@ -95,7 +103,9 @@ async fn process(
                 channel_tx.send((frame, connection_addr)).unwrap();
             }
             channel_result = channel_rx.recv() => {
-                let (frame, rx_connection_addr) = channel_result.unwrap();
+                let Ok((frame, rx_connection_addr)) = channel_result else {
+                    return Ok(())
+                };
                 if rx_connection_addr == connection_addr {
                     continue;
                 }
