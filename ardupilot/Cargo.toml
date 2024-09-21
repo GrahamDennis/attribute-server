@@ -14,3 +14,4 @@ tokio-stream.workspace = true
 anyhow.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 bytes = "1.7.1"
+futures.workspace = true

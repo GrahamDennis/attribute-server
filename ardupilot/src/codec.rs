@@ -5,6 +5,7 @@ use std::io::Cursor;
 use std::marker::PhantomData;
 use tokio_util::codec::{Decoder, Encoder};
 
+#[derive(Copy, Clone)]
 pub struct MavlinkCodec<V: MaybeVersioned> {
     phantom_data: PhantomData<V>,
 }

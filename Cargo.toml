@@ -20,3 +20,4 @@ log = "0.4.22"
 garde = {version = "0.20.0" }
 tonic = "0.12.1"
 prost = "0.13.1"
+futures = "0.3.30"
