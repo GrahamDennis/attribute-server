@@ -4,11 +4,12 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-mavio = "0.2.6"
+mavio = { version = "0.2.6", features = ["std", "ardupilotmega", "serde", "standard", "common"] }
 thiserror.workspace = true
 tracing = { workspace = true, features = ["log"] }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "net", "io-util"] }
 tokio-util = { version = "0.7.12", features = ["codec"] }
+tokio-stream.workspace = true
 
 anyhow.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
