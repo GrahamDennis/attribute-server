@@ -21,7 +21,7 @@ struct ConnectionAddr {
 }
 
 impl ConnectionAddr {
-    fn create(stream: &TcpStream) -> Result<ConnectionAddr, std::io::Error> {
+    fn create(stream: &TcpStream) -> anyhow::Result<ConnectionAddr> {
         Ok(ConnectionAddr {
             local_addr: stream.local_addr()?,
             peer_addr: stream.peer_addr()?,
@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn accept(listener: TcpListener, tx: Sender<SourcedFrame<V2>>) -> Result<(), std::io::Error> {
+async fn accept(listener: TcpListener, tx: Sender<SourcedFrame<V2>>) -> anyhow::Result<()> {
     loop {
         let (socket, peer_addr) = listener.accept().await?;
         tracing::info!(%peer_addr, "Received connection");
@@ -71,7 +71,7 @@ async fn accept(listener: TcpListener, tx: Sender<SourcedFrame<V2>>) -> Result<(
 async fn process(
     mut socket: TcpStream,
     channel_tx: Sender<SourcedFrame<V2>>,
-) -> Result<(), std::io::Error> {
+) -> anyhow::Result<()> {
     let connection_addr = ConnectionAddr::create(&socket)?;
     tracing::Span::current().record("connection_addr", format!("{connection_addr:?}"));
     tracing::info!("Processing connection");
@@ -100,7 +100,11 @@ async fn process(
                     );
                 }
 
-                channel_tx.send((frame, connection_addr)).unwrap();
+                channel_tx.send((frame, connection_addr))?;
+
+                // Do something with this.
+                // FIXME: how do we add logic here?
+                // Look at the mini-redis code and structure this into Connection objects.
             }
             channel_result = channel_rx.recv() => {
                 let Ok((frame, rx_connection_addr)) = channel_result else {
