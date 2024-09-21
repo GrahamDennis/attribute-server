@@ -1,7 +1,7 @@
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 mod lib;
 
@@ -16,7 +16,6 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let socket = TcpStream::connect("127.0.0.1:5760").await?;
-
 
     Ok(())
 }
