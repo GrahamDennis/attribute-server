@@ -1,7 +1,9 @@
 use crate::codec::MavlinkCodec;
 use futures::SinkExt;
 use mavio::prelude::MaybeVersioned;
-use mavio::{Dialect, Frame};
+use mavio::protocol::{ComponentId, Sequencer, SystemId, Versioned};
+use mavio::{Dialect, Frame, Message};
+use mavspec_rust_spec::MessageSpecStatic;
 use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
@@ -16,6 +18,7 @@ enum ConnectionId {
         local_addr: SocketAddr,
         peer_addr: SocketAddr,
     },
+    Local,
 }
 
 impl ConnectionId {
@@ -78,8 +81,10 @@ impl<V: MaybeVersioned> MavlinkNetwork<V> {
         let mut rx = self.tx.subscribe();
         loop {
             let routable_frame = rx.recv().await?;
-            if let Ok(message) = routable_frame.frame.decode::<D>() {
-                tracing::debug!(?message, origin=?routable_frame.origin, "Received message");
+            let frame = routable_frame.frame;
+            let header = frame.header();
+            if let Ok(message) = frame.decode::<D>() {
+                tracing::debug!(system_id=header.system_id(), component_id=header.component_id(), ?message, origin=?routable_frame.origin, "Received message");
             }
         }
     }
@@ -133,6 +138,82 @@ impl<V: MaybeVersioned> MavlinkNetwork<V> {
                     framed_writer.send(routable_frame.frame).await?;
                 }
             }
+        }
+    }
+}
+
+pub struct MavlinkClient<V: Versioned> {
+    mavlink_network: MavlinkNetwork<V>,
+    pub system_id: SystemId,
+    pub component_id: ComponentId,
+    sequencer: Sequencer,
+}
+
+impl<V: Versioned> MavlinkClient<V> {
+    pub fn create(
+        mavlink_network: MavlinkNetwork<V>,
+        system_id: SystemId,
+        component_id: ComponentId,
+    ) -> MavlinkClient<V> {
+        MavlinkClient {
+            mavlink_network,
+            system_id,
+            component_id,
+            sequencer: Sequencer::new(),
+        }
+    }
+
+    #[inline(always)]
+    pub async fn send_and_await_response<
+        RequestT: Message + std::fmt::Debug,
+        ResponseT: MessageSpecStatic + for<'a> TryFrom<&'a mavspec_rust_spec::Payload> + std::fmt::Debug,
+    >(
+        &mut self,
+        msg: RequestT,
+    ) -> anyhow::Result<ResponseT> {
+        self.send_and_await_response_with_predicate(msg, |_| true)
+            .await
+    }
+
+    pub async fn send_and_await_response_with_predicate<
+        RequestT: Message + std::fmt::Debug,
+        ResponseT: MessageSpecStatic + for<'a> TryFrom<&'a mavspec_rust_spec::Payload> + std::fmt::Debug,
+        ResponsePredicate: Fn(&ResponseT) -> bool,
+    >(
+        &mut self,
+        request: RequestT,
+        response_predicate: ResponsePredicate,
+    ) -> anyhow::Result<ResponseT> {
+        let tx = &mut self.mavlink_network.tx;
+        let mut rx = tx.subscribe();
+        let frame = Frame::builder()
+            .version(V::v())
+            .message(&request)?
+            .sequence(self.sequencer.next())
+            .system_id(self.system_id)
+            .component_id(self.component_id)
+            .build();
+
+        tracing::info!(?request, "Sending request");
+        tx.send(RoutableFrame {
+            frame,
+            origin: ConnectionId::Local,
+            destination: MavlinkDestination::All,
+        })?;
+
+        // FIXME: add timeout
+        loop {
+            let routable_frame = rx.recv().await?;
+            if routable_frame.frame.message_id() != ResponseT::message_id() {
+                continue;
+            }
+            if let Ok(response_candidate) = ResponseT::try_from(routable_frame.frame.payload()) {
+                if !response_predicate(&response_candidate) {
+                    continue;
+                }
+                tracing::info!(?request, response=?response_candidate, "Received response");
+                return Ok(response_candidate);
+            };
         }
     }
 }

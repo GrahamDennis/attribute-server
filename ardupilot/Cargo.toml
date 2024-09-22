@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+mavspec_rust_spec = "0.3.4"
 mavio = { version = "0.2.6", features = ["std", "ardupilotmega", "serde", "standard", "common"] }
 thiserror.workspace = true
 tracing = { workspace = true, features = ["log"] }
@@ -15,3 +16,4 @@ anyhow.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 bytes = "1.7.1"
 futures.workspace = true
+async-trait = "0.1.82"

@@ -1,5 +1,6 @@
 pub mod codec;
 pub mod connection;
+pub mod mission;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
