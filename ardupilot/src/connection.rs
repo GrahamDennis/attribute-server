@@ -82,21 +82,21 @@ impl<V: MaybeVersioned> Network<V> {
         MessageT: MessageSpecStatic + for<'a> TryFrom<&'a mavspec_rust_spec::Payload>,
     >(
         &self,
-        node_id: NodeId,
-    ) -> impl Stream<Item = MessageT> {
+    ) -> impl Stream<Item = (NodeId, MessageT)> {
         let rx = self.tx.subscribe();
         BroadcastStream::new(rx).filter_map(move |frame_result| {
             let routable_frame = frame_result.ok()?;
             let frame = routable_frame.frame;
-            if !(frame.message_id() == MessageT::message_id()
-                && node_id.system_id == frame.system_id()
-                && node_id.component_id == frame.component_id())
-            {
+            let origin_node_id = NodeId {
+                system_id: frame.system_id(),
+                component_id: frame.component_id(),
+            };
+            if frame.message_id() != MessageT::message_id() {
                 return None;
             }
 
             if let Ok(message) = MessageT::try_from(frame.payload()) {
-                return Some(message);
+                return Some((origin_node_id, message));
             }
 
             None

@@ -1,23 +1,30 @@
 use crate::attributes::TypedAttribute;
-use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent};
+use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent, MissionItem};
 use crate::pb::{
     AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
     ValueType,
 };
 use crate::{pb, Cli};
+use anyhow::format_err;
+use ardupilot::connection::{Client, Network, NodeId};
+use ardupilot::mission::MissionProtocol;
 use clap::Args;
-use maviola::asnc::node::Event;
-use maviola::asnc::prelude::{EdgeNode, ReceiveEvent, StreamExt};
-use maviola::dialects::Ardupilotmega;
-use maviola::prelude::default_dialect::messages;
-use maviola::prelude::{CallbackApi, DefaultDialect, Frame, Network, Node, TcpClient, TcpServer};
-use maviola::protocol::{ComponentId, MavLinkId, SystemId, V2};
+use mavio::dialects::common::messages;
+use mavio::dialects::common::messages::MissionItemInt;
+use mavio::protocol::{ComponentId, SystemId, Versioned, V2};
+use mavio::Frame;
+use mavspec_rust_spec::{IntoPayload, SpecError};
 use prost::Message;
 use std::convert::Into;
 use std::string::ToString;
 use std::sync::LazyLock;
+use std::time::Duration;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
+use tokio::task::JoinSet;
+use tokio::time::sleep;
+use tonic::codegen::tokio_stream::StreamExt;
 use tonic::Code;
 use tracing::log;
 
@@ -184,69 +191,19 @@ impl From<messages::MissionCurrent> for pb::mavlink::MissionCurrent {
     }
 }
 
-struct MavlinkProcessor {
-    // FIXME: This isn't scalable; we need to support subscribing to streams of arbitrary message types
-    // or a one-shot response with a timeout
-    global_position_tx: Sender<(Frame<V2>, messages::GlobalPositionInt)>,
-    mission_current_tx: Sender<(Frame<V2>, messages::MissionCurrent)>,
-}
+impl TryFrom<messages::MissionItemInt> for pb::mavlink::MissionItem {
+    type Error = SpecError;
 
-impl MavlinkProcessor {
-    fn new() -> Self {
-        let (global_position_tx, _) = broadcast::channel(16);
-        let (mission_current_tx, _) = broadcast::channel(16);
-        MavlinkProcessor {
-            global_position_tx,
-            mission_current_tx,
-        }
-    }
-
-    async fn process_events(&self, node: &EdgeNode<V2>) -> anyhow::Result<()> {
-        let mut events = node.events().unwrap();
-        while let Some(event) = events.next().await {
-            self.process_event(event)?;
-        }
-
-        Ok(())
-    }
-
-    fn process_event(&self, event: Event<V2>) -> anyhow::Result<()> {
-        match event {
-            Event::NewPeer(peer) => {
-                println!("New MAVLink device joined the network: {:?}", peer);
-            }
-            Event::PeerLost(peer) => {
-                println!("MAVLink device is no longer active: {:?}", peer);
-            }
-            Event::Frame(frame, callback) => {
-                callback.broadcast(&frame)?;
-                if let Ok(message) = frame.decode::<DefaultDialect>() {
-                    log::debug!(
-                        "Received a message from {}:{}: {:?}",
-                        frame.system_id(),
-                        frame.component_id(),
-                        message
-                    );
-
-                    match message {
-                        Ardupilotmega::GlobalPositionInt(global_position_int) => {
-                            self.global_position_tx.send((frame, global_position_int))?;
-                        }
-                        Ardupilotmega::MissionCurrent(mission_current) => {
-                            self.mission_current_tx.send((frame, mission_current))?;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Event::Invalid(..) => {}
-        }
-        Ok(())
+    fn try_from(value: MissionItemInt) -> Result<Self, Self::Error> {
+        let payload = value.encode(V2::version())?;
+        Ok(MissionItem {
+            payload: payload.bytes().to_vec(),
+        })
     }
 }
 
-fn symbol_for_node(frame: &Frame<V2>) -> String {
-    format!("mavlink/id/{}:{}", frame.system_id(), frame.component_id())
+fn symbol_for_node(node_id: NodeId) -> String {
+    format!("mavlink/id/{}:{}", node_id.system_id, node_id.component_id)
 }
 
 pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
@@ -313,54 +270,81 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
     println!("Server endpoints: {:?}", args.server_endpoints);
     println!("Client endpoints: {:?}", args.client_endpoints);
 
-    let mut network = Network::asnc();
+    let network = Network::<V2>::create_with_capacity(128);
+    let mut join_set = JoinSet::new();
 
     for server_address in &args.server_endpoints {
-        network = network.add_connection(TcpServer::new(server_address)?);
+        let listener = TcpListener::bind(server_address).await?;
+        join_set.spawn(network.clone().accept_loop(listener));
     }
     for client_address in &args.client_endpoints {
-        network = network.add_connection(TcpClient::new(client_address)?);
+        let socket = TcpStream::connect(client_address).await?;
+        join_set.spawn(network.clone().process_tcp(socket));
     }
 
-    let mut node = Node::asnc::<V2>()
-        .id(MavLinkId::new(args.system_id, args.component_id))
-        .connection(network)
-        .build()
-        .await?;
+    let mut global_position_rx = network.subscribe::<messages::GlobalPositionInt>().await;
+    let mut global_position_client = attribute_store_client.clone();
 
-    // Activate node to start sending heartbeats
-    node.activate().await?;
-
-    let mavlink_processor = MavlinkProcessor::new();
-    let mut global_position_rx = mavlink_processor.global_position_tx.subscribe();
-    let mut mission_current_rx = mavlink_processor.mission_current_tx.subscribe();
-
-    let join_handle = tokio::spawn(async move { mavlink_processor.process_events(&node).await });
-
-    loop {
-        tokio::select! {
-            Ok((frame, global_position_int)) = global_position_rx.recv() => {
+    join_set.spawn(async move {
+        while let Some((origin, global_position_int)) = global_position_rx.next().await {
+            let symbol_id = symbol_for_node(origin);
             let global_position: pb::mavlink::GlobalPosition = global_position_int.into();
-                let symbol_id = symbol_for_node(&frame);
-                let _response = attribute_store_client.simple_update_entity(&symbol_id, global_position).await?;
-            }
-            Ok((frame, mission_current)) = mission_current_rx.recv() => {
-                let mission_current_proto: pb::mavlink::MissionCurrent = mission_current.into();
-                let symbol_id = symbol_for_node(&frame);
-
-                let _response = attribute_store_client.simple_update_entity(&symbol_id, mission_current_proto).await?;
-            }
-                else => {
-                    break;
-                }
+            let _response = global_position_client
+                .simple_update_entity(&symbol_id, global_position)
+                .await?;
         }
-    }
 
-    join_handle.abort();
+        Ok(())
+    });
+
+    let mut mission_current_rx = network.subscribe::<messages::MissionCurrent>().await;
+    let mut mission_current_client = attribute_store_client.clone();
+    join_set.spawn(async move {
+        while let Some((origin, mission_current)) = mission_current_rx.next().await {
+            let symbol_id = symbol_for_node(origin);
+            let mission_current_proto: pb::mavlink::MissionCurrent = mission_current.into();
+
+            let _response = mission_current_client
+                .simple_update_entity(&symbol_id, mission_current_proto)
+                .await?;
+        }
+
+        Ok(())
+    });
+
+    let mut mavlink_client = Client::create(
+        network.clone(),
+        NodeId {
+            system_id: args.system_id,
+            component_id: args.component_id,
+        },
+    );
+    let mut mission_client = attribute_store_client.clone();
+    join_set.spawn(async move {
+        let node_id = NodeId {
+            system_id: 1,
+            component_id: 1,
+        };
+        let symbol_id = symbol_for_node(node_id);
+        loop {
+            let mission = mavlink_client.fetch_mission(node_id).await?;
+
+            let converted: Result<Vec<MissionItem>, _> = mission
+                .into_iter()
+                .map(|mission_item_int| mission_item_int.try_into())
+                .collect();
+            let mission_proto: pb::mavlink::Mission = Mission {
+                mission_items: converted.map_err(|err| format_err!("{err:?}"))?,
+            };
+            let _response = mission_client
+                .simple_update_entity(&symbol_id, mission_proto)
+                .await?;
+
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    join_set.join_all().await;
 
     Ok(())
 }
-
-// async fn fetch_mission() -> anyhow::Result<()> {
-//
-// }
