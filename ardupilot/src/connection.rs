@@ -8,7 +8,8 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast::Sender;
-use tokio_stream::StreamExt;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::{Stream, StreamExt};
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::log;
 
@@ -45,19 +46,19 @@ pub struct RoutableFrame<V: MaybeVersioned> {
 }
 
 #[derive(Clone, Debug)]
-pub struct MavlinkNetwork<V: MaybeVersioned> {
+pub struct Network<V: MaybeVersioned> {
     tx: Sender<RoutableFrame<V>>,
 }
 
-impl<V: MaybeVersioned> MavlinkNetwork<V> {
+impl<V: MaybeVersioned> Network<V> {
     #[inline(always)]
-    pub fn create_with_capacity(capacity: usize) -> MavlinkNetwork<V> {
+    pub fn create_with_capacity(capacity: usize) -> Network<V> {
         Self::create(Sender::new(capacity))
     }
 
     #[inline(always)]
-    pub fn create(tx: Sender<RoutableFrame<V>>) -> MavlinkNetwork<V> {
-        MavlinkNetwork { tx }
+    pub fn create(tx: Sender<RoutableFrame<V>>) -> Network<V> {
+        Network { tx }
     }
 
     pub async fn accept_loop(self, listener: TcpListener) -> anyhow::Result<()> {
@@ -75,6 +76,31 @@ impl<V: MaybeVersioned> MavlinkNetwork<V> {
         let (read, write) = tcp_stream.split();
 
         self.process(connection_id, read, write).await
+    }
+
+    pub async fn subscribe<
+        MessageT: MessageSpecStatic + for<'a> TryFrom<&'a mavspec_rust_spec::Payload>,
+    >(
+        &self,
+        node_id: NodeId,
+    ) -> impl Stream<Item = MessageT> {
+        let rx = self.tx.subscribe();
+        BroadcastStream::new(rx).filter_map(move |frame_result| {
+            let routable_frame = frame_result.ok()?;
+            let frame = routable_frame.frame;
+            if !(frame.message_id() == MessageT::message_id()
+                && node_id.system_id == frame.system_id()
+                && node_id.component_id == frame.component_id())
+            {
+                return None;
+            }
+
+            if let Ok(message) = MessageT::try_from(frame.payload()) {
+                return Some(message);
+            }
+
+            None
+        })
     }
 
     pub async fn log_frames<D: Dialect + std::fmt::Debug>(self) -> anyhow::Result<()> {
@@ -142,24 +168,35 @@ impl<V: MaybeVersioned> MavlinkNetwork<V> {
     }
 }
 
-pub struct MavlinkClient<V: Versioned> {
-    mavlink_network: MavlinkNetwork<V>,
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct NodeId {
     pub system_id: SystemId,
     pub component_id: ComponentId,
+}
+
+pub struct Client<V: Versioned> {
+    network: Network<V>,
+    pub node_id: NodeId,
     sequencer: Sequencer,
 }
 
-impl<V: Versioned> MavlinkClient<V> {
-    pub fn create(
-        mavlink_network: MavlinkNetwork<V>,
-        system_id: SystemId,
-        component_id: ComponentId,
-    ) -> MavlinkClient<V> {
-        MavlinkClient {
-            mavlink_network,
-            system_id,
-            component_id,
+impl<V: Versioned> Client<V> {
+    pub fn create(mavlink_network: Network<V>, node_id: NodeId) -> Client<V> {
+        Client {
+            network: mavlink_network,
+            node_id,
             sequencer: Sequencer::new(),
+        }
+    }
+
+    pub fn response_type_message_extractor<
+        ResponseT: MessageSpecStatic + for<'a> TryFrom<&'a mavspec_rust_spec::Payload> + std::fmt::Debug,
+    >() -> impl Fn(&Frame<V>) -> Option<ResponseT> {
+        |frame| {
+            if frame.message_id() != ResponseT::message_id() {
+                return None;
+            }
+            ResponseT::try_from(frame.payload()).ok()
         }
     }
 
@@ -171,30 +208,30 @@ impl<V: Versioned> MavlinkClient<V> {
         &mut self,
         msg: RequestT,
     ) -> anyhow::Result<ResponseT> {
-        self.send_and_await_response_with_predicate(msg, |_| true)
+        self.send_and_await_response_with_extractor(msg, Self::response_type_message_extractor())
             .await
     }
 
-    pub async fn send_and_await_response_with_predicate<
+    pub async fn send_and_await_response_with_extractor<
         RequestT: Message + std::fmt::Debug,
-        ResponseT: MessageSpecStatic + for<'a> TryFrom<&'a mavspec_rust_spec::Payload> + std::fmt::Debug,
-        ResponsePredicate: Fn(&ResponseT) -> bool,
+        ResponseT: std::fmt::Debug,
+        ResponseExtractor: Fn(&Frame<V>) -> Option<ResponseT>,
     >(
         &mut self,
         request: RequestT,
-        response_predicate: ResponsePredicate,
+        response_extractor: ResponseExtractor,
     ) -> anyhow::Result<ResponseT> {
-        let tx = &mut self.mavlink_network.tx;
+        let tx = &mut self.network.tx;
         let mut rx = tx.subscribe();
         let frame = Frame::builder()
             .version(V::v())
             .message(&request)?
             .sequence(self.sequencer.next())
-            .system_id(self.system_id)
-            .component_id(self.component_id)
+            .system_id(self.node_id.system_id)
+            .component_id(self.node_id.component_id)
             .build();
 
-        tracing::info!(?request, "Sending request");
+        tracing::debug!(?request, "Sending request");
         tx.send(RoutableFrame {
             frame,
             origin: ConnectionId::Local,
@@ -204,16 +241,10 @@ impl<V: Versioned> MavlinkClient<V> {
         // FIXME: add timeout
         loop {
             let routable_frame = rx.recv().await?;
-            if routable_frame.frame.message_id() != ResponseT::message_id() {
-                continue;
+            if let Some(response) = response_extractor(&routable_frame.frame) {
+                tracing::debug!(?request, response=?response, "Received response");
+                return Ok(response);
             }
-            if let Ok(response_candidate) = ResponseT::try_from(routable_frame.frame.payload()) {
-                if !response_predicate(&response_candidate) {
-                    continue;
-                }
-                tracing::info!(?request, response=?response_candidate, "Received response");
-                return Ok(response_candidate);
-            };
         }
     }
 }

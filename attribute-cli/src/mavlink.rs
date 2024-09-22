@@ -1,5 +1,5 @@
 use crate::attributes::TypedAttribute;
-use crate::pb::mavlink::{GlobalPosition, MissionCurrent};
+use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent};
 use crate::pb::{
     AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
     ValueType,
@@ -36,6 +36,7 @@ pub struct MavlinkArgs {
 pub enum AttributeTypes {
     GlobalPosition,
     MissionCurrent,
+    Mission,
     FileDescriptorSet,
     FileDescriptorSetRef,
     MessageName,
@@ -61,11 +62,22 @@ impl TypedAttribute for MissionCurrent {
     }
 }
 
+impl TypedAttribute for Mission {
+    fn attribute_name() -> &'static str {
+        "mavlink/mission"
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        self.encode_to_vec()
+    }
+}
+
 impl AttributeTypes {
     pub fn as_str(&self) -> &'static str {
         match self {
             AttributeTypes::GlobalPosition => "mavlink/globalPosition",
             AttributeTypes::MissionCurrent => "mavlink/missionCurrent",
+            AttributeTypes::Mission => "mavlink/mission",
             AttributeTypes::FileDescriptorSet => "pb/fileDescriptorSet",
             AttributeTypes::FileDescriptorSetRef => "pb/fileDescriptorSetRef",
             AttributeTypes::MessageName => "pb/messageName",
@@ -114,6 +126,12 @@ static ATTRIBUTE_TYPES: LazyLock<Vec<CreateAttributeTypeRequest>> = LazyLock::ne
         CreateAttributeTypeRequest {
             attribute_type: Some(AttributeType {
                 symbol: AttributeTypes::MissionCurrent.as_str().to_string(),
+                value_type: ValueType::Bytes.into(),
+            }),
+        },
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: AttributeTypes::Mission.as_str().to_string(),
                 value_type: ValueType::Bytes.into(),
             }),
         },

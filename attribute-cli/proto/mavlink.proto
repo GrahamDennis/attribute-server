@@ -37,3 +37,11 @@ message MissionCurrent {
     MISSION_MODE_SUSPENDED = 2;
   }
 }
+
+message Mission {
+  repeated MissionItem mission_items = 1;
+}
+
+message MissionItem {
+  bytes payload = 1;
+}
