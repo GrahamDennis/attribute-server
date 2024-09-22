@@ -1,8 +1,9 @@
 use crate::attributes::TypedAttribute;
+use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent, MissionItem};
 use crate::pb::{
-    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
-    ValueType,
+    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, EntityQueryNode,
+    UpdateEntityRequest, ValueType, WatchEntityRowsRequest,
 };
 use crate::{pb, Cli};
 use anyhow::format_err;
@@ -24,7 +25,8 @@ use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
-use tonic::codegen::tokio_stream::StreamExt;
+use tonic::codegen::tokio_stream::{Stream, StreamExt};
+use tonic::transport::Channel;
 use tonic::Code;
 use tracing::log;
 
@@ -263,6 +265,9 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         attribute_store_client
             .update_protobuf_attribute_type::<MissionCurrent>(&mavlink_fdset_entity_id)
             .await?;
+        attribute_store_client
+            .update_protobuf_attribute_type::<Mission>(&mavlink_fdset_entity_id)
+            .await?;
     }
 
     println!("Mavlink running...");
@@ -282,35 +287,14 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         join_set.spawn(network.clone().process_tcp(socket));
     }
 
-    let mut global_position_rx = network.subscribe::<messages::GlobalPositionInt>().await;
-    let mut global_position_client = attribute_store_client.clone();
-
-    join_set.spawn(async move {
-        while let Some((origin, global_position_int)) = global_position_rx.next().await {
-            let symbol_id = symbol_for_node(origin);
-            let global_position: pb::mavlink::GlobalPosition = global_position_int.into();
-            let _response = global_position_client
-                .simple_update_entity(&symbol_id, global_position)
-                .await?;
-        }
-
-        Ok(())
-    });
-
-    let mut mission_current_rx = network.subscribe::<messages::MissionCurrent>().await;
-    let mut mission_current_client = attribute_store_client.clone();
-    join_set.spawn(async move {
-        while let Some((origin, mission_current)) = mission_current_rx.next().await {
-            let symbol_id = symbol_for_node(origin);
-            let mission_current_proto: pb::mavlink::MissionCurrent = mission_current.into();
-
-            let _response = mission_current_client
-                .simple_update_entity(&symbol_id, mission_current_proto)
-                .await?;
-        }
-
-        Ok(())
-    });
+    join_set.spawn(publish_to_attribute_server::<GlobalPosition, _>(
+        network.subscribe::<messages::GlobalPositionInt>().await,
+        attribute_store_client.clone(),
+    ));
+    join_set.spawn(publish_to_attribute_server::<MissionCurrent, _>(
+        network.subscribe::<messages::MissionCurrent>().await,
+        attribute_store_client.clone(),
+    ));
 
     let mut mavlink_client = Client::create(
         network.clone(),
@@ -345,6 +329,24 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
     });
 
     join_set.join_all().await;
+
+    Ok(())
+}
+
+async fn publish_to_attribute_server<A: TypedAttribute, M: mavspec_rust_spec::Message>(
+    mut rx: impl Stream<Item = (NodeId, M)> + Unpin,
+    mut attribute_store_client: AttributeStoreClient<Channel>,
+) -> anyhow::Result<()>
+where
+    A: From<M>,
+{
+    while let Some((origin, message)) = rx.next().await {
+        let symbol_id = symbol_for_node(origin);
+        let attribute: A = message.into();
+        let _response = attribute_store_client
+            .simple_update_entity(&symbol_id, attribute)
+            .await?;
+    }
 
     Ok(())
 }
