@@ -2,8 +2,8 @@ use crate::attributes::TypedAttribute;
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent, MissionItem};
 use crate::pb::{
-    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, EntityQueryNode,
-    UpdateEntityRequest, ValueType, WatchEntityRowsRequest,
+    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator,
+    UpdateEntityRequest, ValueType,
 };
 use crate::{pb, Cli};
 use anyhow::format_err;
@@ -13,7 +13,6 @@ use clap::Args;
 use mavio::dialects::common::messages;
 use mavio::dialects::common::messages::MissionItemInt;
 use mavio::protocol::{ComponentId, SystemId, Versioned, V2};
-use mavio::Frame;
 use mavspec_rust_spec::{IntoPayload, SpecError};
 use prost::Message;
 use std::convert::Into;
@@ -21,8 +20,6 @@ use std::string::ToString;
 use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::broadcast;
-use tokio::sync::broadcast::Sender;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tonic::codegen::tokio_stream::{Stream, StreamExt};
@@ -303,26 +300,16 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
             component_id: args.component_id,
         },
     );
-    let mut mission_client = attribute_store_client.clone();
+    let node_id = NodeId { system_id: 1, component_id: 1 };
+    let mut mission_fetcher = MissionFetcher {
+        node_id,
+        mavlink_client,
+        symbol_id: symbol_for_node(node_id),
+        attribute_store_client: attribute_store_client.clone(),
+    };
     join_set.spawn(async move {
-        let node_id = NodeId {
-            system_id: 1,
-            component_id: 1,
-        };
-        let symbol_id = symbol_for_node(node_id);
         loop {
-            let mission = mavlink_client.fetch_mission(node_id).await?;
-
-            let converted: Result<Vec<MissionItem>, _> = mission
-                .into_iter()
-                .map(|mission_item_int| mission_item_int.try_into())
-                .collect();
-            let mission_proto: pb::mavlink::Mission = Mission {
-                mission_items: converted.map_err(|err| format_err!("{err:?}"))?,
-            };
-            let _response = mission_client
-                .simple_update_entity(&symbol_id, mission_proto)
-                .await?;
+            mission_fetcher.update().await?;
 
             sleep(Duration::from_secs(5)).await;
         }
@@ -349,4 +336,30 @@ where
     }
 
     Ok(())
+}
+
+struct MissionFetcher {
+    node_id: NodeId,
+    mavlink_client: Client<V2>,
+    symbol_id: String,
+    attribute_store_client: AttributeStoreClient<Channel>,
+}
+
+impl MissionFetcher {
+    async fn update(&mut self) -> Result<(), anyhow::Error> {
+        let mission = self.mavlink_client.fetch_mission(self.node_id).await?;
+
+        let converted: Result<Vec<MissionItem>, _> = mission
+            .into_iter()
+            .map(|mission_item_int| mission_item_int.try_into())
+            .collect();
+        let mission_proto: pb::mavlink::Mission = Mission {
+            mission_items: converted.map_err(|err| format_err!("{err:?}"))?,
+        };
+        let _response = self.attribute_store_client
+            .simple_update_entity(&self.symbol_id, mission_proto)
+            .await?;
+        
+        Ok(())
+    }
 }
