@@ -527,17 +527,17 @@ impl IntoProto<pb::WatchEntitiesEvent> for WatchEntitiesEvent {
             event: match (self.before, self.after) {
                 (None, Some(after)) => {
                     Some(pb::watch_entities_event::Event::Added(pb::AddedEvent {
-                        entity: Some(after.into_proto()),
+                        entity: Some(after.as_ref().clone().into_proto()),
                     }))
                 }
                 (Some(_), Some(after)) => Some(pb::watch_entities_event::Event::Modified(
                     pb::ModifiedEvent {
-                        entity: Some(after.into_proto()),
+                        entity: Some(after.as_ref().clone().into_proto()),
                     },
                 )),
                 (Some(before), None) => {
                     Some(pb::watch_entities_event::Event::Removed(pb::RemovedEvent {
-                        entity: Some(before.into_proto()),
+                        entity: Some(before.as_ref().clone().into_proto()),
                     }))
                 }
                 (before, after) => {

@@ -2,8 +2,8 @@ use crate::attributes::TypedAttribute;
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent, MissionItem};
 use crate::pb::{
-    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator,
-    UpdateEntityRequest, ValueType,
+    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
+    ValueType,
 };
 use crate::{pb, Cli};
 use anyhow::format_err;
@@ -300,7 +300,10 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
             component_id: args.component_id,
         },
     );
-    let node_id = NodeId { system_id: 1, component_id: 1 };
+    let node_id = NodeId {
+        system_id: 1,
+        component_id: 1,
+    };
     let mut mission_fetcher = MissionFetcher {
         node_id,
         mavlink_client,
@@ -356,10 +359,11 @@ impl MissionFetcher {
         let mission_proto: pb::mavlink::Mission = Mission {
             mission_items: converted.map_err(|err| format_err!("{err:?}"))?,
         };
-        let _response = self.attribute_store_client
+        let _response = self
+            .attribute_store_client
             .simple_update_entity(&self.symbol_id, mission_proto)
             .await?;
-        
+
         Ok(())
     }
 }

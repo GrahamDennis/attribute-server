@@ -8,7 +8,7 @@ use std::convert::Into;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use thiserror::Error;
 use tokio::sync::broadcast::Receiver;
 
@@ -361,8 +361,8 @@ pub struct WatchEntityRowsRequest {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct WatchEntitiesEvent {
     pub entity_version: EntityVersion,
-    pub before: Option<Entity>,
-    pub after: Option<Entity>,
+    pub before: Option<Arc<Entity>>,
+    pub after: Option<Arc<Entity>>,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone)]

@@ -7,6 +7,7 @@ use crate::store::{
 };
 use garde::Unvalidated;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::Level;
@@ -106,7 +107,7 @@ impl InMemoryAttributeStore {
         let _ = self.watch_entities_channel.send(WatchEntitiesEvent {
             entity_version: entity.entity_version,
             before: None,
-            after: Some(entity.clone()),
+            after: Some(Arc::new(entity.clone())),
         });
 
         Ok(entity)
@@ -131,8 +132,8 @@ impl InMemoryAttributeStore {
             entity.entity_version = EntityVersion(entity_version_sequence.next().unwrap());
             let _ = watch_entities_channel.send(WatchEntitiesEvent {
                 entity_version: entity.entity_version,
-                before: Some(before),
-                after: Some(entity.clone()),
+                before: Some(Arc::new(before)),
+                after: Some(Arc::new(entity.clone())),
             });
         }
 

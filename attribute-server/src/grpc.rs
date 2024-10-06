@@ -8,6 +8,7 @@ use attribute_store::store::{
 };
 use std::iter;
 use std::pin::Pin;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
@@ -253,7 +254,7 @@ impl<T: attribute_store::store::ThreadSafeAttributeStore> pb::attribute_store_se
                 .map(|entity| WatchEntitiesEvent {
                     entity_version: entity_query_result.entity_version,
                     before: None,
-                    after: Some(entity),
+                    after: Some(Arc::new(entity)),
                 })
                 .map(|event| event.into_proto())
                 .chain(iter::once(bookmark_event))
@@ -386,7 +387,7 @@ fn filter_event(
         }
     }
 
-    let matches_query = |entity: &Entity| -> bool { entity_query_node.matches(entity) };
+    let matches_query = |entity: &Arc<Entity>| -> bool { entity_query_node.matches(entity) };
 
     Some(WatchEntitiesEvent {
         entity_version,
