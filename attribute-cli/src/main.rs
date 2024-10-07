@@ -298,8 +298,6 @@ async fn main() -> anyhow::Result<()> {
                         &entity_row_metadata
                     ))?
                 );
-
-                // println!("{}", json::to_json(&event)?);
             }
 
             Ok(())

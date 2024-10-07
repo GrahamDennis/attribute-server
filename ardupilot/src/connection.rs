@@ -174,6 +174,8 @@ pub struct NodeId {
     pub component_id: ComponentId,
 }
 
+pub type MessageFromNode<M> = (NodeId, M);
+
 pub struct Client<V: Versioned> {
     network: Network<V>,
     pub node_id: NodeId,

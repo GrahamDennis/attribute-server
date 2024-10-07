@@ -1,17 +1,17 @@
 use crate::attributes::TypedAttribute;
 use crate::pb::attribute_store_client::AttributeStoreClient;
-use crate::pb::mavlink::{GlobalPosition, Mission, MissionCurrent, MissionItem};
+use crate::pb::mavlink::{Autopilot, GlobalPosition, Mission, MissionCurrent, MissionItem};
 use crate::pb::{
     AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
     ValueType,
 };
 use crate::{pb, Cli};
 use anyhow::format_err;
-use ardupilot::connection::{Client, Network, NodeId};
+use ardupilot::connection::{Client, MessageFromNode, Network, NodeId};
 use ardupilot::mission::MissionProtocol;
 use clap::Args;
 use mavio::dialects::common::messages;
-use mavio::dialects::common::messages::MissionItemInt;
+use mavio::dialects::common::messages::{Heartbeat, MissionItemInt};
 use mavio::protocol::{ComponentId, SystemId, Versioned, V2};
 use mavspec_rust_spec::{IntoPayload, SpecError};
 use prost::Message;
@@ -24,7 +24,6 @@ use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tokio::time;
-use tokio::time::sleep;
 use tonic::codegen::tokio_stream::{Stream, StreamExt};
 use tonic::transport::Channel;
 use tonic::Code;
@@ -43,12 +42,19 @@ pub struct MavlinkArgs {
 }
 
 pub enum AttributeTypes {
-    GlobalPosition,
-    MissionCurrent,
-    Mission,
     FileDescriptorSet,
     FileDescriptorSetRef,
     MessageName,
+}
+
+impl TypedAttribute for pb::mavlink::Autopilot {
+    fn attribute_name() -> &'static str {
+        "mavlink/autopilot"
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        self.encode_to_vec()
+    }
 }
 
 impl TypedAttribute for GlobalPosition {
@@ -84,9 +90,6 @@ impl TypedAttribute for Mission {
 impl AttributeTypes {
     pub fn as_str(&self) -> &'static str {
         match self {
-            AttributeTypes::GlobalPosition => "mavlink/globalPosition",
-            AttributeTypes::MissionCurrent => "mavlink/missionCurrent",
-            AttributeTypes::Mission => "mavlink/mission",
             AttributeTypes::FileDescriptorSet => "pb/fileDescriptorSet",
             AttributeTypes::FileDescriptorSetRef => "pb/fileDescriptorSetRef",
             AttributeTypes::MessageName => "pb/messageName",
@@ -128,19 +131,25 @@ static ATTRIBUTE_TYPES: LazyLock<Vec<CreateAttributeTypeRequest>> = LazyLock::ne
         },
         CreateAttributeTypeRequest {
             attribute_type: Some(AttributeType {
-                symbol: AttributeTypes::GlobalPosition.as_str().to_string(),
+                symbol: pb::mavlink::Autopilot::attribute_name().to_string(),
                 value_type: ValueType::Bytes.into(),
             }),
         },
         CreateAttributeTypeRequest {
             attribute_type: Some(AttributeType {
-                symbol: AttributeTypes::MissionCurrent.as_str().to_string(),
+                symbol: pb::mavlink::GlobalPosition::attribute_name().to_string(),
                 value_type: ValueType::Bytes.into(),
             }),
         },
         CreateAttributeTypeRequest {
             attribute_type: Some(AttributeType {
-                symbol: AttributeTypes::Mission.as_str().to_string(),
+                symbol: pb::mavlink::MissionCurrent::attribute_name().to_string(),
+                value_type: ValueType::Bytes.into(),
+            }),
+        },
+        CreateAttributeTypeRequest {
+            attribute_type: Some(AttributeType {
+                symbol: pb::mavlink::Mission::attribute_name().to_string(),
                 value_type: ValueType::Bytes.into(),
             }),
         },
@@ -163,8 +172,17 @@ fn from_mavlink_orientation_cdeg(orientation: u16) -> f32 {
     f32::from(orientation) / 1e2
 }
 
-impl From<messages::GlobalPositionInt> for pb::mavlink::GlobalPosition {
-    fn from(value: messages::GlobalPositionInt) -> Self {
+impl From<MessageFromNode<messages::Heartbeat>> for pb::mavlink::Autopilot {
+    fn from((node_id, _message): MessageFromNode<Heartbeat>) -> Self {
+        pb::mavlink::Autopilot {
+            system_id: node_id.system_id as u32,
+            component_id: node_id.component_id as u32,
+        }
+    }
+}
+
+impl From<(NodeId, messages::GlobalPositionInt)> for pb::mavlink::GlobalPosition {
+    fn from((_node_id, value): (NodeId, messages::GlobalPositionInt)) -> Self {
         pb::mavlink::GlobalPosition {
             time_boot_ms: value.time_boot_ms,
             latitude_deg: from_mavlink_deg_e7(value.lat),
@@ -179,8 +197,8 @@ impl From<messages::GlobalPositionInt> for pb::mavlink::GlobalPosition {
     }
 }
 
-impl From<messages::MissionCurrent> for pb::mavlink::MissionCurrent {
-    fn from(value: messages::MissionCurrent) -> Self {
+impl From<(NodeId, messages::MissionCurrent)> for pb::mavlink::MissionCurrent {
+    fn from((_node_id, value): (NodeId, messages::MissionCurrent)) -> Self {
         MissionCurrent {
             sequence: value.seq as u32,
             total_mission_items: value.total as u32,
@@ -268,6 +286,9 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         attribute_store_client
             .update_protobuf_attribute_type::<Mission>(&mavlink_fdset_entity_id)
             .await?;
+        attribute_store_client
+            .update_protobuf_attribute_type::<pb::mavlink::Autopilot>(&mavlink_fdset_entity_id)
+            .await?;
     }
 
     println!("Mavlink running...");
@@ -286,6 +307,11 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         let socket = TcpStream::connect(client_address).await?;
         join_set.spawn(network.clone().process_tcp(socket));
     }
+
+    join_set.spawn(publish_to_attribute_server::<Autopilot, _>(
+        network.subscribe::<messages::Heartbeat>().await,
+        attribute_store_client.clone(),
+    ));
 
     join_set.spawn(publish_to_attribute_server::<GlobalPosition, _>(
         network.subscribe::<messages::GlobalPositionInt>().await,
@@ -321,18 +347,14 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
                 }
                 Some((node_id, mission_current)) = mission_current_subscription.next() => {
                     match last_mission_currents.entry(node_id) {
-                        Entry::Occupied(occupied) => {
+                        Entry::Occupied(mut occupied) => {
                             let last_mission_current = occupied.get();
-                            if last_mission_current.total != mission_current.total {
-                                // update
-                            } else if last_mission_current.mission_id != 0 && last_mission_current.mission_id == mission_current.mission_id {
-                                // mission ID unchanged
-                                continue;
-                            }
+                            let update = (last_mission_current.total != mission_current.total) || (last_mission_current.mission_id != mission_current.mission_id);
+                            occupied.insert(mission_current);
+                            if !update { continue }
                         }
                         Entry::Vacant(vacant) => {
                             vacant.insert(mission_current);
-                            // update
                         }}
                 }
                 else => {
@@ -354,11 +376,11 @@ async fn publish_to_attribute_server<A: TypedAttribute, M: mavspec_rust_spec::Me
     mut attribute_store_client: AttributeStoreClient<Channel>,
 ) -> anyhow::Result<()>
 where
-    A: From<M>,
+    A: From<MessageFromNode<M>>,
 {
     while let Some((origin, message)) = rx.next().await {
         let symbol_id = symbol_for_node(origin);
-        let attribute: A = message.into();
+        let attribute: A = (origin, message).into();
         let _response = attribute_store_client
             .simple_update_entity(&symbol_id, attribute)
             .await?;
