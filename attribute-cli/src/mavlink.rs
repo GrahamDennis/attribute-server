@@ -15,12 +15,15 @@ use mavio::dialects::common::messages::MissionItemInt;
 use mavio::protocol::{ComponentId, SystemId, Versioned, V2};
 use mavspec_rust_spec::{IntoPayload, SpecError};
 use prost::Message;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::convert::Into;
 use std::string::ToString;
 use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
+use tokio::time;
 use tokio::time::sleep;
 use tonic::codegen::tokio_stream::{Stream, StreamExt};
 use tonic::transport::Channel;
@@ -293,28 +296,51 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
         attribute_store_client.clone(),
     ));
 
-    let mut mavlink_client = Client::create(
-        network.clone(),
-        NodeId {
-            system_id: args.system_id,
-            component_id: args.component_id,
-        },
-    );
     let node_id = NodeId {
         system_id: 1,
         component_id: 1,
     };
     let mut mission_fetcher = MissionFetcher {
-        node_id,
-        mavlink_client,
-        symbol_id: symbol_for_node(node_id),
+        mavlink_client: Client::create(
+            network.clone(),
+            NodeId {
+                system_id: args.system_id,
+                component_id: args.component_id,
+            },
+        ),
         attribute_store_client: attribute_store_client.clone(),
     };
     join_set.spawn(async move {
+        let mut mission_current_subscription = network.subscribe::<messages::MissionCurrent>().await;
+        let mut last_mission_currents: HashMap<NodeId, messages::MissionCurrent> = HashMap::new();
+        let mut update_timer = time::interval(Duration::from_secs(30));
         loop {
-            mission_fetcher.update().await?;
+            tokio::select! {
+                _ = update_timer.tick() => {
+                    // update
+                }
+                Some((node_id, mission_current)) = mission_current_subscription.next() => {
+                    match last_mission_currents.entry(node_id) {
+                        Entry::Occupied(occupied) => {
+                            let last_mission_current = occupied.get();
+                            if last_mission_current.total != mission_current.total {
+                                // update
+                            } else if last_mission_current.mission_id != 0 && last_mission_current.mission_id == mission_current.mission_id {
+                                // mission ID unchanged
+                                continue;
+                            }
+                        }
+                        Entry::Vacant(vacant) => {
+                            vacant.insert(mission_current);
+                            // update
+                        }}
+                }
+                else => {
+                    return Ok(());
+                }
+            }
 
-            sleep(Duration::from_secs(5)).await;
+            mission_fetcher.update(node_id).await?;
         }
     });
 
@@ -342,15 +368,13 @@ where
 }
 
 struct MissionFetcher {
-    node_id: NodeId,
     mavlink_client: Client<V2>,
-    symbol_id: String,
     attribute_store_client: AttributeStoreClient<Channel>,
 }
 
 impl MissionFetcher {
-    async fn update(&mut self) -> Result<(), anyhow::Error> {
-        let mission = self.mavlink_client.fetch_mission(self.node_id).await?;
+    async fn update(&mut self, node_id: NodeId) -> Result<(), anyhow::Error> {
+        let mission = self.mavlink_client.fetch_mission(node_id).await?;
 
         let converted: Result<Vec<MissionItem>, _> = mission
             .into_iter()
@@ -361,7 +385,7 @@ impl MissionFetcher {
         };
         let _response = self
             .attribute_store_client
-            .simple_update_entity(&self.symbol_id, mission_proto)
+            .simple_update_entity(&symbol_for_node(node_id), mission_proto)
             .await?;
 
         Ok(())

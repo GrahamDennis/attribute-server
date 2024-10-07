@@ -168,7 +168,7 @@ impl<V: MaybeVersioned> Network<V> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId {
     pub system_id: SystemId,
     pub component_id: ComponentId,
