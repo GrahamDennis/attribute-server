@@ -1,10 +1,7 @@
 use crate::attributes::TypedAttribute;
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::mavlink::{Autopilot, GlobalPosition, Mission, MissionCurrent, MissionItem};
-use crate::pb::{
-    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
-    ValueType,
-};
+use crate::pb::{AttributeType, AttributeTypeOptions, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest, ValueType};
 use crate::{pb, Cli};
 use anyhow::format_err;
 use ardupilot::connection::{Client, MessageFromNode, Network, NodeId};
@@ -21,6 +18,7 @@ use std::convert::Into;
 use std::string::ToString;
 use std::sync::LazyLock;
 use std::time::Duration;
+use prost_reflect::{DescriptorPool, MessageDescriptor, ReflectMessage};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tokio::time;
@@ -49,7 +47,7 @@ pub enum AttributeTypes {
 
 impl TypedAttribute for pb::mavlink::Autopilot {
     fn attribute_name() -> &'static str {
-        "mavlink/autopilot"
+        "me.grahamdennis.attribute.mavlink.Autopilot"
     }
 
     fn as_bytes(&self) -> Vec<u8> {
@@ -59,7 +57,7 @@ impl TypedAttribute for pb::mavlink::Autopilot {
 
 impl TypedAttribute for GlobalPosition {
     fn attribute_name() -> &'static str {
-        "mavlink/globalPosition"
+        "me.grahamdennis.attribute.mavlink.GlobalPosition"
     }
 
     fn as_bytes(&self) -> Vec<u8> {
@@ -69,7 +67,7 @@ impl TypedAttribute for GlobalPosition {
 
 impl TypedAttribute for MissionCurrent {
     fn attribute_name() -> &'static str {
-        "mavlink/missionCurrent"
+        "me.grahamdennis.attribute.mavlink.MissionCurrent"
     }
 
     fn as_bytes(&self) -> Vec<u8> {
@@ -79,7 +77,7 @@ impl TypedAttribute for MissionCurrent {
 
 impl TypedAttribute for Mission {
     fn attribute_name() -> &'static str {
-        "mavlink/mission"
+        "me.grahamdennis.attribute.mavlink.Mission"
     }
 
     fn as_bytes(&self) -> Vec<u8> {
@@ -100,6 +98,7 @@ impl AttributeTypes {
 enum EntityNames {
     MavlinkFileDescriptorSet,
 }
+
 
 impl EntityNames {
     fn as_str(&self) -> &'static str {
@@ -127,30 +126,6 @@ static ATTRIBUTE_TYPES: LazyLock<Vec<CreateAttributeTypeRequest>> = LazyLock::ne
             attribute_type: Some(AttributeType {
                 symbol: AttributeTypes::MessageName.as_str().to_string(),
                 value_type: ValueType::Text.into(),
-            }),
-        },
-        CreateAttributeTypeRequest {
-            attribute_type: Some(AttributeType {
-                symbol: pb::mavlink::Autopilot::attribute_name().to_string(),
-                value_type: ValueType::Bytes.into(),
-            }),
-        },
-        CreateAttributeTypeRequest {
-            attribute_type: Some(AttributeType {
-                symbol: pb::mavlink::GlobalPosition::attribute_name().to_string(),
-                value_type: ValueType::Bytes.into(),
-            }),
-        },
-        CreateAttributeTypeRequest {
-            attribute_type: Some(AttributeType {
-                symbol: pb::mavlink::MissionCurrent::attribute_name().to_string(),
-                value_type: ValueType::Bytes.into(),
-            }),
-        },
-        CreateAttributeTypeRequest {
-            attribute_type: Some(AttributeType {
-                symbol: pb::mavlink::Mission::attribute_name().to_string(),
-                value_type: ValueType::Bytes.into(),
             }),
         },
     ]
@@ -249,46 +224,7 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
     log::info!("Creating entities");
 
     {
-        let create_mavlink_fdset_request = UpdateEntityRequest {
-            entity_locator: Some(EntityLocator::from_symbol(
-                EntityNames::MavlinkFileDescriptorSet.as_str(),
-            )),
-            attributes_to_update: vec![
-                pb::AttributeToUpdate {
-                    attribute_type: "@symbolName".to_string(),
-                    attribute_value: Some(AttributeValue::from_string(
-                        EntityNames::MavlinkFileDescriptorSet.as_str(),
-                    )),
-                },
-                pb::AttributeToUpdate {
-                    attribute_type: AttributeTypes::FileDescriptorSet.as_str().to_string(),
-                    attribute_value: Some(AttributeValue::from_bytes(
-                        pb::mavlink::FILE_DESCRIPTOR_SET.to_vec(),
-                    )),
-                },
-            ],
-        };
-        let mavlink_fdset_response = attribute_store_client
-            .update_entity(create_mavlink_fdset_request)
-            .await?
-            .into_inner();
-        let mavlink_fdset_entity = mavlink_fdset_response
-            .entity
-            .ok_or(anyhow::format_err!("Failed to create mavlink fdset entity"))?;
-        let mavlink_fdset_entity_id = mavlink_fdset_entity.entity_id;
-
-        attribute_store_client
-            .update_protobuf_attribute_type::<GlobalPosition>(&mavlink_fdset_entity_id)
-            .await?;
-        attribute_store_client
-            .update_protobuf_attribute_type::<MissionCurrent>(&mavlink_fdset_entity_id)
-            .await?;
-        attribute_store_client
-            .update_protobuf_attribute_type::<Mission>(&mavlink_fdset_entity_id)
-            .await?;
-        attribute_store_client
-            .update_protobuf_attribute_type::<pb::mavlink::Autopilot>(&mavlink_fdset_entity_id)
-            .await?;
+        attribute_store_client.upload_protobuf_message_specs(pb::mavlink::FILE_DESCRIPTOR_SET).await?;
     }
 
     println!("Mavlink running...");

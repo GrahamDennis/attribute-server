@@ -26,7 +26,7 @@ fn build_mavlink_protos() -> Result<()> {
     let mut config = Config::new();
 
     let protos = &["proto/mavlink.proto"];
-    let includes = &["proto/"];
+    let includes = &["proto/", "../proto/"];
 
     prost_reflect_build::Builder::new()
         .file_descriptor_set_bytes("crate::pb::mavlink::FILE_DESCRIPTOR_SET")

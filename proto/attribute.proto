@@ -2,6 +2,15 @@ syntax = "proto3";
 
 package me.grahamdennis.attribute;
 
+import "google/protobuf/descriptor.proto";
+
+message AttributeTypeOptions {
+  bool create_attribute_type = 1;
+}
+extend google.protobuf.MessageOptions {
+  optional AttributeTypeOptions attribute_type_options = 50000;
+}
+
 service AttributeStore {
   rpc Ping(PingRequest) returns (PingResponse);
 

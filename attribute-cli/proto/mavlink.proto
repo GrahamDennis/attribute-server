@@ -2,9 +2,13 @@ syntax = "proto3";
 
 package me.grahamdennis.attribute.mavlink;
 
+import "attribute.proto";
+
 message Autopilot {
   uint32 system_id = 1; // uint8
   uint32 component_id = 2; // uint8
+
+  option (attribute_type_options).create_attribute_type = true;
 }
 
 message GlobalPosition {
@@ -17,6 +21,8 @@ message GlobalPosition {
   float velocity_y_m_s = 7;
   float velocity_z_m_s = 8;
   float heading_deg = 9;
+
+  option (attribute_type_options).create_attribute_type = true;
 }
 
 message MissionCurrent {
@@ -41,10 +47,14 @@ message MissionCurrent {
     MISSION_MODE_IN_MISSION_MODE = 1;
     MISSION_MODE_SUSPENDED = 2;
   }
+
+  option (attribute_type_options).create_attribute_type = true;
 }
 
 message Mission {
   repeated MissionItem mission_items = 1;
+
+  option (attribute_type_options).create_attribute_type = true;
 }
 
 message MissionItem {
