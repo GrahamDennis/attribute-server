@@ -1,7 +1,10 @@
 use crate::attributes::TypedAttribute;
 use crate::pb::attribute_store_client::AttributeStoreClient;
 use crate::pb::mavlink::{Autopilot, GlobalPosition, Mission, MissionCurrent, MissionItem};
-use crate::pb::{AttributeType, AttributeTypeOptions, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest, ValueType};
+use crate::pb::{
+    AttributeType, AttributeTypeOptions, AttributeValue, CreateAttributeTypeRequest, EntityLocator,
+    UpdateEntityRequest, ValueType,
+};
 use crate::{pb, Cli};
 use anyhow::format_err;
 use ardupilot::connection::{Client, MessageFromNode, Network, NodeId};
@@ -12,13 +15,13 @@ use mavio::dialects::common::messages::{Heartbeat, MissionItemInt};
 use mavio::protocol::{ComponentId, SystemId, Versioned, V2};
 use mavspec_rust_spec::{IntoPayload, SpecError};
 use prost::Message;
+use prost_reflect::{DescriptorPool, MessageDescriptor, ReflectMessage};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::convert::Into;
 use std::string::ToString;
 use std::sync::LazyLock;
 use std::time::Duration;
-use prost_reflect::{DescriptorPool, MessageDescriptor, ReflectMessage};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tokio::time;
@@ -98,7 +101,6 @@ impl AttributeTypes {
 enum EntityNames {
     MavlinkFileDescriptorSet,
 }
-
 
 impl EntityNames {
     fn as_str(&self) -> &'static str {
@@ -224,7 +226,9 @@ pub async fn mavlink_run(cli: &Cli, args: &MavlinkArgs) -> anyhow::Result<()> {
     log::info!("Creating entities");
 
     {
-        attribute_store_client.upload_protobuf_message_specs(pb::mavlink::FILE_DESCRIPTOR_SET).await?;
+        attribute_store_client
+            .upload_protobuf_message_specs(pb::mavlink::FILE_DESCRIPTOR_SET)
+            .await?;
     }
 
     println!("Mavlink running...");

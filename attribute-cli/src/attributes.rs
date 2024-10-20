@@ -1,7 +1,10 @@
 use crate::mavlink::AttributeTypes;
 use crate::pb;
 use crate::pb::attribute_store_client::AttributeStoreClient;
-use crate::pb::{AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest, ValueType};
+use crate::pb::{
+    AttributeType, AttributeValue, CreateAttributeTypeRequest, EntityLocator, UpdateEntityRequest,
+    ValueType,
+};
 use prost_reflect::{DescriptorPool, MessageDescriptor, ReflectMessage};
 use tonic::transport::Channel;
 
@@ -11,12 +14,18 @@ pub trait TypedAttribute {
 }
 
 impl AttributeStoreClient<Channel> {
-    pub async fn upload_protobuf_message_specs(&mut self, file_descriptor_set_bytes: &[u8]) -> anyhow::Result<()> {
-        let descriptor_pool =
-            DescriptorPool::decode(file_descriptor_set_bytes)?;
-        let attribute_type_extension = descriptor_pool.get_extension_by_name("me.grahamdennis.attribute.attribute_type_options").unwrap();
+    pub async fn upload_protobuf_message_specs(
+        &mut self,
+        file_descriptor_set_bytes: &[u8],
+    ) -> anyhow::Result<()> {
+        let descriptor_pool = DescriptorPool::decode(file_descriptor_set_bytes)?;
+        let attribute_type_extension = descriptor_pool
+            .get_extension_by_name("me.grahamdennis.attribute.attribute_type_options")
+            .unwrap();
 
-        let message_descriptor_is_attribute_type = |message_descriptor: MessageDescriptor| -> anyhow::Result<Option<MessageDescriptor>> {
+        let message_descriptor_is_attribute_type = |message_descriptor: MessageDescriptor| -> anyhow::Result<
+            Option<MessageDescriptor>,
+        > {
             let options = message_descriptor.options();
             let extension = options.get_extension(&attribute_type_extension);
             let Some(extension) = extension.as_message() else {
@@ -31,20 +40,22 @@ impl AttributeStoreClient<Channel> {
         };
 
         for file_descriptor in descriptor_pool.files() {
-            let attribute_message_descriptors: Vec<_> = file_descriptor.messages()
+            let attribute_message_descriptors: Vec<_> = file_descriptor
+                .messages()
                 .map(message_descriptor_is_attribute_type)
                 .filter_map(|result| result.transpose())
                 .collect::<Result<_, _>>()?;
-            
+
             if attribute_message_descriptors.is_empty() {
                 continue;
             }
-            let message_full_names: Vec<_> = attribute_message_descriptors.iter().map(MessageDescriptor::full_name).collect();
+            let message_full_names: Vec<_> = attribute_message_descriptors
+                .iter()
+                .map(MessageDescriptor::full_name)
+                .collect();
             tracing::info!(file_descriptor=file_descriptor.package_name(), messages=?message_full_names, "Uploading file descriptor");
             let create_fdset_request = UpdateEntityRequest {
-                entity_locator: Some(EntityLocator::from_symbol(
-                    file_descriptor.package_name(),
-                )),
+                entity_locator: Some(EntityLocator::from_symbol(file_descriptor.package_name())),
                 attributes_to_update: vec![
                     pb::AttributeToUpdate {
                         attribute_type: "@symbolName".to_string(),
@@ -60,25 +71,26 @@ impl AttributeStoreClient<Channel> {
                     },
                 ],
             };
-            let fdset_response = self
-                .update_entity(create_fdset_request)
-                .await?
-                .into_inner();
+            let fdset_response = self.update_entity(create_fdset_request).await?.into_inner();
             let fdset_entity = fdset_response
                 .entity
                 .ok_or(anyhow::format_err!("Failed to create mavlink fdset entity"))?;
-            
 
-            let filtered_messages: Vec<_> = file_descriptor.messages()
+            let filtered_messages: Vec<_> = file_descriptor
+                .messages()
                 .map(message_descriptor_is_attribute_type)
                 .filter_map(|result| result.transpose())
                 .collect::<Result<_, _>>()?;
-            
+
             for message_descriptor in filtered_messages {
-                self.update_protobuf_attribute_type_v2(&fdset_entity.entity_id, &message_descriptor).await?;
+                self.update_protobuf_attribute_type_v2(
+                    &fdset_entity.entity_id,
+                    &message_descriptor,
+                )
+                .await?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -88,14 +100,16 @@ impl AttributeStoreClient<Channel> {
         message_descriptor: &MessageDescriptor,
     ) -> Result<tonic::Response<pb::UpdateEntityResponse>, tonic::Status> {
         let symbol_name = message_descriptor.full_name();
-        
-        let create_attribute_type_request =         CreateAttributeTypeRequest {
+
+        let create_attribute_type_request = CreateAttributeTypeRequest {
             attribute_type: Some(AttributeType {
                 symbol: symbol_name.to_string(),
                 value_type: ValueType::Bytes.into(),
             }),
         };
-        let create_attribute_result = self.create_attribute_type(create_attribute_type_request).await;
+        let create_attribute_result = self
+            .create_attribute_type(create_attribute_type_request)
+            .await;
         match create_attribute_result {
             Ok(_) => {}
             Err(status) if status.code() == tonic::Code::AlreadyExists => {
@@ -115,9 +129,7 @@ impl AttributeStoreClient<Channel> {
                 },
                 pb::AttributeToUpdate {
                     attribute_type: AttributeTypes::MessageName.as_str().to_string(),
-                    attribute_value: Some(AttributeValue::from_string(
-                        symbol_name,
-                    )),
+                    attribute_value: Some(AttributeValue::from_string(symbol_name)),
                 },
                 pb::AttributeToUpdate {
                     attribute_type: AttributeTypes::FileDescriptorSetRef.as_str().to_string(),
